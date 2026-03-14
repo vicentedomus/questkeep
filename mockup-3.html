@@ -3,17 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mockup 3 — Tipografía HALO</title>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cinzel+Decorative:wght@700;900&family=IM+Fell+English:ital@0;1&family=Uncial+Antiqua&family=MedievalSharp&family=Pirata+One&family=Almendra+Display&display=swap" rel="stylesheet">
+<title>HALO — Campaña D&D</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Pirata+One&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{width:100%;min-height:100%;font-family:'IM Fell English',serif;background:#0e0a06}
+html,body{width:100%;height:100%;overflow:hidden}
 
-/* ── BACKGROUND ── */
-.bg{
-  position:fixed;inset:0;
+body{
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh;
+  font-family:'IM Fell English',serif;
+  background:#0e0a06;
+}
+
+/* ── BACKGROUND: MURO DE PIEDRA ── */
+.bg{position:absolute;inset:0;
   background:radial-gradient(ellipse 90% 70% at 50% 40%,#2a1c0a 0%,#1a1008 40%,#0e0804 100%);
-  z-index:0;
 }
 .bg::before{
   content:'';position:absolute;inset:0;
@@ -25,32 +30,15 @@ html,body{width:100%;min-height:100%;font-family:'IM Fell English',serif;backgro
 .bg::after{
   content:'';position:absolute;inset:0;
   background:
-    radial-gradient(ellipse 60% 70% at 50% 35%,rgba(180,100,20,.14) 0%,transparent 70%),
+    radial-gradient(ellipse 60% 70% at 50% 35%,rgba(180,100,20,.16) 0%,transparent 70%),
     radial-gradient(ellipse 100% 40% at 50% 100%,rgba(0,0,0,.9) 0%,transparent 100%),
     radial-gradient(ellipse 100% 30% at 50% 0%,rgba(0,0,0,.7) 0%,transparent 100%);
 }
 
-/* ── PAGE LAYOUT ── */
-.page{
-  position:relative;z-index:10;
-  display:flex;flex-direction:column;align-items:center;
-  padding:40px 20px 60px;
-  gap:32px;
-}
-
-/* ── SECTION HEADER ── */
-.section-title{
-  font-family:'Cinzel',serif;
-  font-size:.78rem;font-weight:700;
-  letter-spacing:.3em;text-transform:uppercase;
-  color:#7a5a28;
-  text-align:center;
-}
-
-/* ── WOODEN FRAME (reutilizado de mockup-3) ── */
+/* ── MARCO DE MADERA ── */
 .frame-outer{
-  position:relative;
-  padding:14px;
+  position:relative;z-index:20;
+  padding:16px;
   background:
     linear-gradient(135deg,#4a3010 0%,#3a2408 20%,#4a3010 40%,#2e1c06 60%,#3a2408 80%,#4a3010 100%);
   border:3px solid #6a4c1e;
@@ -58,7 +46,7 @@ html,body{width:100%;min-height:100%;font-family:'IM Fell English',serif;backgro
     0 0 0 1px #2a1c08,
     0 0 0 5px #3a2808,
     0 0 0 7px #5a3e1a,
-    0 20px 60px rgba(0,0,0,.85),
+    0 20px 60px rgba(0,0,0,.9),
     inset 0 0 20px rgba(0,0,0,.4);
 }
 .frame-outer::before{
@@ -67,18 +55,19 @@ html,body{width:100%;min-height:100%;font-family:'IM Fell English',serif;backgro
   pointer-events:none;
 }
 .nail{
-  position:absolute;width:12px;height:12px;border-radius:50%;
+  position:absolute;width:14px;height:14px;border-radius:50%;
   background:radial-gradient(circle at 35% 35%,#8a7040,#5a4a20 50%,#3a3010);
   border:1px solid #4a3c18;
   box-shadow:0 1px 3px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.1);
 }
-.nail.ntl{top:4px;left:4px}.nail.ntr{top:4px;right:4px}
-.nail.nbl{bottom:4px;left:4px}.nail.nbr{bottom:4px;right:4px}
+.nail.ntl{top:5px;left:5px}.nail.ntr{top:5px;right:5px}
+.nail.nbl{bottom:5px;left:5px}.nail.nbr{bottom:5px;right:5px}
 
-/* ── PARCHMENT ── */
+/* ── PANEL DE PERGAMINO ── */
 .parchment{
   position:relative;
-  padding:28px 32px 22px;
+  width:clamp(270px,80vw,360px);
+  padding:30px 28px 24px;
   text-align:center;
   background:linear-gradient(160deg,#c8a86a 0%,#b89050 30%,#aa8444 60%,#bc9660 100%);
   border:1px solid #7a5a28;
@@ -98,214 +87,96 @@ html,body{width:100%;min-height:100%;font-family:'IM Fell English',serif;backgro
   pointer-events:none;
 }
 
-/* ── INTRO PANEL ── */
-.intro-parchment{
-  width:clamp(280px,80vw,520px);
+/* ── LOGO ── */
+.logo{
+  font-family:'Pirata One',serif;
+  font-size:clamp(3rem,8vw,4.2rem);
+  color:#1e1006;
+  letter-spacing:.12em;
+  line-height:1;
+  text-shadow:
+    0 1px 0 rgba(255,220,150,.3),
+    0 -1px 0 rgba(0,0,0,.35),
+    0 3px 8px rgba(0,0,0,.45);
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.4));
+  margin-bottom:4px;
 }
-.intro-text{
+
+.sub{
   font-family:'IM Fell English',serif;
   font-style:italic;
-  color:#3a2010;
-  font-size:.9rem;
-  line-height:1.7;
+  color:#5a3a18;
+  font-size:.82rem;
+  letter-spacing:.12em;
+  margin-bottom:20px;
 }
+
 .divider{
   height:2px;
   background:linear-gradient(90deg,transparent,#7a4a18,#5a3010,#7a4a18,transparent);
-  margin:14px 0;
+  margin-bottom:20px;
   position:relative;
 }
 .divider::before{
   content:'⚜';position:absolute;top:50%;left:50%;
   transform:translate(-50%,-50%);
-  color:#5a3010;font-size:.85rem;background:#b89050;padding:0 6px;
+  color:#5a3010;font-size:.9rem;background:#b89050;padding:0 6px;
 }
 
-/* ── TYPOGRAPHY GRID ── */
-.typo-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-  gap:24px;
-  width:clamp(280px,90vw,1100px);
-}
-
-/* ── TYPO CARD ── */
-.typo-card .parchment{
-  width:100%;
-  display:flex;flex-direction:column;align-items:center;gap:10px;
-}
-.option-num{
-  font-family:'Cinzel',serif;
-  font-size:.65rem;font-weight:700;letter-spacing:.25em;
-  color:#7a5a28;text-transform:uppercase;
-}
-.halo-sample{
-  color:#2a1808;
-  letter-spacing:.18em;
-  line-height:1;
-  text-shadow:0 1px 0 rgba(255,220,150,.3),0 -1px 0 rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.35);
-  filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));
-}
-.font-name{
-  font-family:'IM Fell English',serif;
-  font-style:italic;
-  font-size:.72rem;color:#5a3a18;
-  letter-spacing:.06em;
-  margin-top:2px;
-}
-.font-desc{
-  font-family:'IM Fell English',serif;
-  font-size:.68rem;color:#7a5a30;
-  font-style:italic;
-  text-align:center;
-  line-height:1.5;
-  max-width:180px;
-}
-
-/* ─── Opciones de fuente ─── */
-.f1{font-family:'Cinzel Decorative',serif;font-weight:900;font-size:2.6rem}
-.f2{font-family:'Uncial Antiqua',serif;font-weight:400;font-size:2.8rem}
-.f3{font-family:'MedievalSharp',serif;font-weight:400;font-size:2.5rem}
-.f4{font-family:'Pirata One',serif;font-weight:400;font-size:3rem}
-.f5{font-family:'Almendra Display',serif;font-weight:400;font-size:2.7rem}
-
-/* ── LOGIN PREVIEW ── */
-.login-preview-wrap{
-  width:clamp(280px,80vw,380px);
-}
-.preview-label{
-  font-family:'Cinzel',serif;
-  font-size:.7rem;font-weight:700;
-  letter-spacing:.25em;text-transform:uppercase;
-  color:#7a5a28;text-align:center;
-  margin-bottom:16px;
-}
-.parchment.login-p{
-  width:100%;
-}
-.sub{
-  font-family:'IM Fell English',serif;
-  font-style:italic;color:#5a3a18;
-  font-size:.8rem;letter-spacing:.1em;
-}
+/* ── FORMULARIO ── */
 input[type=password]{
-  width:100%;padding:9px 14px;margin-top:14px;
-  background:rgba(60,20,0,.25);
+  width:100%;padding:10px 14px;
+  background:rgba(60,20,0,.2);
   border:1px solid #7a5028;border-bottom:2px solid #5a3818;
-  color:#2a1808;
+  color:#1e1006;
   font-family:'IM Fell English',serif;font-size:.95rem;
-  letter-spacing:.08em;outline:none;
-  text-align:center;
+  letter-spacing:.08em;outline:none;transition:border .2s,background .2s;
+  margin-bottom:14px;text-align:center;
+}
+input:focus{
+  border-color:#3a2010;
+  background:rgba(60,20,0,.3);
+  box-shadow:0 0 10px rgba(100,50,0,.15);
 }
 input::placeholder{color:#8a6a3a}
+
 .btn-enter{
-  width:100%;margin-top:10px;padding:10px;
+  width:100%;padding:11px;
   background:linear-gradient(180deg,#4a2c0e 0%,#3a2008 55%,#2a1606 100%);
   border:2px solid #6a4018;border-bottom:3px solid #1a1008;
   color:#d4a050;
-  font-family:'Cinzel',serif;font-size:.75rem;font-weight:700;
+  font-family:'Cinzel',serif;font-size:.78rem;font-weight:700;
   letter-spacing:.18em;text-transform:uppercase;cursor:pointer;
+  transition:all .12s;
   text-shadow:0 1px 2px rgba(0,0,0,.6);
+  box-shadow:inset 0 1px 0 rgba(255,200,100,.1),0 2px 8px rgba(0,0,0,.5);
 }
+.btn-enter:hover{
+  background:linear-gradient(180deg,#6a3c14 0%,#4a2c0a 55%,#3a1e08 100%);
+  color:#f0c060;
+  box-shadow:0 0 14px rgba(180,100,20,.25),inset 0 1px 0 rgba(255,200,100,.15);
+}
+.btn-enter:active{transform:translateY(2px);border-bottom-width:1px}
+
+.err{margin-top:10px;color:#8b2500;font-size:.75rem;font-style:italic;min-height:16px}
 </style>
 </head>
 <body>
+
 <div class="bg"></div>
 
-<div class="page">
-
-  <!-- ── Intro ── -->
-  <div class="frame-outer">
-    <div class="nail ntl"></div><div class="nail ntr"></div>
-    <div class="nail nbl"></div><div class="nail nbr"></div>
-    <div class="parchment intro-parchment">
-      <p class="intro-text">Cinco propuestas de tipografía para el título <strong>HALO</strong>.<br>
-      Elige la que mejor represente la campaña.</p>
-      <div class="divider"></div>
-      <p class="intro-text" style="font-size:.78rem">El panel inferior muestra cómo quedaría la opción elegida en la pantalla de login.</p>
-    </div>
+<div class="frame-outer">
+  <div class="nail ntl"></div><div class="nail ntr"></div>
+  <div class="nail nbl"></div><div class="nail nbr"></div>
+  <div class="parchment">
+    <div class="logo">HALO</div>
+    <div class="sub">Campaña de Dungeons &amp; Dragons</div>
+    <div class="divider"></div>
+    <input type="password" placeholder="Contraseña de acceso...">
+    <button class="btn-enter">&#9660; Entrar al Reino &#9660;</button>
+    <div class="err"></div>
   </div>
-
-  <!-- ── Grid de tipografías ── -->
-  <div class="typo-grid">
-
-    <!-- Opción 1 -->
-    <div class="typo-card frame-outer">
-      <div class="nail ntl"></div><div class="nail ntr"></div>
-      <div class="nail nbl"></div><div class="nail nbr"></div>
-      <div class="parchment">
-        <span class="option-num">Opción 1</span>
-        <span class="halo-sample f1">HALO</span>
-        <span class="font-name">Cinzel Decorative</span>
-        <span class="font-desc">Clásica e imperial. Letras romanas con serifas elegantes. La más formal.</span>
-      </div>
-    </div>
-
-    <!-- Opción 2 -->
-    <div class="typo-card frame-outer">
-      <div class="nail ntl"></div><div class="nail ntr"></div>
-      <div class="nail nbl"></div><div class="nail nbr"></div>
-      <div class="parchment">
-        <span class="option-num">Opción 2</span>
-        <span class="halo-sample f2">HALO</span>
-        <span class="font-name">Uncial Antiqua</span>
-        <span class="font-desc">Manuscrito céltico. Letras redondeadas de pergamino antiguo. Táctil y mística.</span>
-      </div>
-    </div>
-
-    <!-- Opción 3 -->
-    <div class="typo-card frame-outer">
-      <div class="nail ntl"></div><div class="nail ntr"></div>
-      <div class="nail nbl"></div><div class="nail nbr"></div>
-      <div class="parchment">
-        <span class="option-num">Opción 3</span>
-        <span class="halo-sample f3">HALO</span>
-        <span class="font-name">MedievalSharp</span>
-        <span class="font-desc">Tallada en piedra. Ángulos duros y serifas afiladas. Sólida y amenazante.</span>
-      </div>
-    </div>
-
-    <!-- Opción 4 -->
-    <div class="typo-card frame-outer">
-      <div class="nail ntl"></div><div class="nail ntr"></div>
-      <div class="nail nbl"></div><div class="nail nbr"></div>
-      <div class="parchment">
-        <span class="option-num">Opción 4</span>
-        <span class="halo-sample f4">HALO</span>
-        <span class="font-name">Pirata One</span>
-        <span class="font-desc">Gótica oscura. Trazo grueso y dramático. Misteriosa e intimidante.</span>
-      </div>
-    </div>
-
-    <!-- Opción 5 -->
-    <div class="typo-card frame-outer">
-      <div class="nail ntl"></div><div class="nail ntr"></div>
-      <div class="nail nbl"></div><div class="nail nbr"></div>
-      <div class="parchment">
-        <span class="option-num">Opción 5</span>
-        <span class="halo-sample f5">HALO</span>
-        <span class="font-name">Almendra Display</span>
-        <span class="font-desc">Elegante y delicada. Serifas curvas con personalidad. Refinada y fantasiosa.</span>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Preview de login (editar el número para ver cada opción) ── -->
-  <p class="preview-label">Vista previa en pantalla de login</p>
-  <div class="login-preview-wrap frame-outer">
-    <div class="nail ntl"></div><div class="nail ntr"></div>
-    <div class="nail nbl"></div><div class="nail nbr"></div>
-    <div class="parchment login-p">
-      <!-- Cambia la clase f1–f5 para previsualizar -->
-      <span class="halo-sample f1" style="font-size:3rem">HALO</span>
-      <div class="sub" style="margin-top:6px">Campaña de Dungeons &amp; Dragons</div>
-      <div class="divider" style="margin-top:14px"></div>
-      <input type="password" placeholder="Contraseña de acceso...">
-      <button class="btn-enter">&#9660; Entrar al Reino &#9660;</button>
-    </div>
-  </div>
-
 </div>
+
 </body>
 </html>
