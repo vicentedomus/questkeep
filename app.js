@@ -8,10 +8,10 @@ const DATA = {};
 let PENDING_CHANGES = JSON.parse(localStorage.getItem('pendingChanges') || '[]');
 let currentModalSection = null;
 let currentModalData = null;
+let currentModalMode = null; // 'detail' | 'edit'
 
 // ── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Login form
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const pw = document.getElementById('password-input').value.trim();
@@ -27,15 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // If already logged in this session
   if (isLoggedIn()) bootApp();
 
-  // Tab buttons
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // Close modal on overlay click
   document.getElementById('modal-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
   });
@@ -89,6 +86,16 @@ function val(v, fallback='\u2014') {
   return v;
 }
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function filterBySearch(arr, searchId, fields) {
   const el = document.getElementById(searchId);
   if (!el) return arr;
@@ -132,26 +139,216 @@ function estadoBadge(e) {
   return `<span class="badge ${e === 'Vivo' ? 'estado-vivo' : 'estado-muerto'}">${e}</span>`;
 }
 
-function editBtn(section, data) {
-  return isDM() ? `<button class="btn btn-sm btn-icon" onclick='openModal("${section}", ${JSON.stringify(data).replace(/'/g,"&#39;")})'  title="Editar">&#9998;</button>` : '';
+// ── NAVIGATE TO CARD ──────────────────────────────────────────
+function navegarA(tab, notionId) {
+  closeModal();
+  switchTab(tab);
+  if (!notionId) return;
+  setTimeout(() => {
+    const card = document.querySelector(`[data-notion-id="${notionId}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('card-highlight');
+    setTimeout(() => card.classList.remove('card-highlight'), 2000);
+  }, 120);
+}
+
+// ── DETAIL MODAL ──────────────────────────────────────────────
+function openDetailFromCard(el) {
+  // Prevent opening if user clicked a rel-link inside the card
+  const section = el.dataset.section;
+  const notionId = el.dataset.notionId;
+  let arr;
+  if (section === 'notas_dm') arr = DATA.notas_dm || [];
+  else if (section === 'notas_jugadores') arr = DATA.notas_jugadores || [];
+  else arr = DATA[section] || [];
+  const item = arr.find(x => x.notion_id === notionId);
+  if (item) openDetail(section, item);
+}
+
+function openDetail(section, data) {
+  currentModalSection = section;
+  currentModalData = data;
+  currentModalMode = 'detail';
+  const label = SECTION_LABELS[section] || section;
+  document.getElementById('modal-title').textContent = escapeHtml(data.nombre || label);
+
+  const body = document.getElementById('modal-body');
+  body.innerHTML = buildDetailHTML(section, data);
+  body.classList.add('is-detail');
+
+  const footer = document.getElementById('modal-footer');
+  footer.innerHTML = `
+    <button class="btn" onclick="closeModal()">Cerrar</button>
+    ${isDM() ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
+  `;
+
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function switchToEdit() {
+  if (!currentModalSection || !currentModalData) return;
+  currentModalMode = 'edit';
+  const label = SECTION_LABELS[currentModalSection] || currentModalSection;
+  document.getElementById('modal-title').textContent = `Editar ${label}`;
+
+  const body = document.getElementById('modal-body');
+  body.classList.remove('is-detail');
+
+  const schema = FORM_SCHEMAS[currentModalSection] || [];
+  const data = currentModalData;
+
+  body.innerHTML = schema.map(field => {
+    const v = data[field.key] !== undefined ? data[field.key] : (field.type === 'checkbox' ? false : '');
+    if (field.type === 'textarea') {
+      return `<div class="form-group"><label>${field.label}</label><textarea id="field-${field.key}" rows="4">${escapeHtml(v || '')}</textarea></div>`;
+    }
+    if (field.type === 'checkbox') {
+      return `<div class="form-group"><div class="form-check"><input type="checkbox" id="field-${field.key}" ${v ? 'checked' : ''}><label for="field-${field.key}">${field.label}</label></div></div>`;
+    }
+    if (field.type === 'select') {
+      const opts = field.options.map(o => `<option value="${o}" ${o === v ? 'selected' : ''}>${o || '\u2014 Ninguno \u2014'}</option>`).join('');
+      return `<div class="form-group"><label>${field.label}</label><select id="field-${field.key}">${opts}</select></div>`;
+    }
+    return `<div class="form-group"><label>${field.label}${field.required ? ' *' : ''}</label><input type="${field.type || 'text'}" id="field-${field.key}" value="${escapeHtml(v !== null && v !== undefined ? String(v) : '')}"></div>`;
+  }).join('');
+
+  const footer = document.getElementById('modal-footer');
+  footer.innerHTML = `
+    <button class="btn" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-success" onclick="saveModal()">Guardar</button>
+  `;
+}
+
+function buildDetailHTML(section, data) {
+  function row(label, value) {
+    if (value === null || value === undefined || value === '' || value === '\u2014') return '';
+    return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`;
+  }
+  function textBlock(label, text) {
+    if (!text) return '';
+    return `<div class="detail-section"><div class="detail-label">${label}</div><div class="detail-text">${escapeHtml(text).replace(/\n/g,'<br>')}</div></div>`;
+  }
+  function relLink(tab, notionId, nombre) {
+    if (!nombre) return '\u2014';
+    const safe = escapeHtml(nombre);
+    if (notionId) return `<span class="rel-link" onclick="event.stopPropagation();navegarA('${tab}','${notionId}')">${safe}</span>`;
+    return safe;
+  }
+
+  switch(section) {
+    case 'npcs': {
+      const n = data;
+      return [
+        row('Rol', rolBadge(n.rol)),
+        row('Estado', estadoBadge(n.estado)),
+        row('Tipo', n.tipo_npc ? `<span class="badge tipo-badge">${escapeHtml(n.tipo_npc)}</span>` : ''),
+        row('Raza', escapeHtml(n.raza)),
+        row('Ciudad', n.ciudad ? relLink('ciudades', n.ciudad.notion_id, n.ciudad.nombre) : ''),
+        row('Establecimiento', n.establecimiento ? relLink('establecimientos', n.establecimiento.notion_id, n.establecimiento.nombre) : ''),
+        textBlock('Descripci\u00f3n', n.descripcion),
+        (isDM() && n.quests_relacionadas && n.quests_relacionadas.length) ? `<div class="detail-section"><div class="detail-label">Quests relacionadas</div><ul class="card-list">${n.quests_relacionadas.map(q => `<li>${relLink('quests', q.notion_id, q.nombre)}</li>`).join('')}</ul></div>` : '',
+        (isDM() && n.items_magicos && n.items_magicos.length) ? `<div class="detail-section"><div class="detail-label">Items M\u00e1gicos</div><ul class="card-list">${n.items_magicos.map(i => `<li>${relLink('items', i.notion_id, i.nombre)}</li>`).join('')}</ul></div>` : '',
+      ].join('');
+    }
+    case 'personajes': {
+      const p = data;
+      const jugador = p.jugador ? (typeof p.jugador === 'object' ? p.jugador.nombre : p.jugador) : null;
+      return [
+        row('Clase', escapeHtml(p.clase)),
+        p.subclase ? row('Subclase', escapeHtml(p.subclase)) : '',
+        row('Raza', escapeHtml(p.raza)),
+        jugador ? row('Jugador', escapeHtml(jugador)) : '',
+        (p.nivel !== null && p.nivel !== undefined) ? row('Nivel', p.nivel) : '',
+        (p.ac !== null && p.ac !== undefined) ? row('AC', p.ac) : '',
+        (p.hp_maximo !== null && p.hp_maximo !== undefined) ? row('HP M\u00e1x', p.hp_maximo) : '',
+        textBlock('Descripci\u00f3n', p.descripcion),
+        (p.items_magicos && p.items_magicos.length) ? `<div class="detail-section"><div class="detail-label">Items M\u00e1gicos</div><ul class="card-list">${p.items_magicos.map(i => `<li>${relLink('items', i.notion_id, i.nombre)}</li>`).join('')}</ul></div>` : '',
+      ].join('');
+    }
+    case 'quests': {
+      const q = data;
+      return [
+        row('Estado', estadoQuestBadge(q.estado)),
+        q.recompensa_gp ? row('Recompensa', `<span class="quest-recompensa">&#9830; ${escapeHtml(q.recompensa_gp)} GP</span>`) : '',
+        textBlock('Resumen', q.resumen),
+      ].join('');
+    }
+    case 'ciudades': {
+      const c = data;
+      return [
+        row('Reino/Estado', escapeHtml(c.estado)),
+        row('L\u00edder', escapeHtml(c.lider)),
+        c.poblacion ? row('Poblaci\u00f3n', c.poblacion.toLocaleString()) : '',
+        textBlock('Descripci\u00f3n', c.descripcion),
+        (isDM() && c.descripcion_lider) ? textBlock('Descripci\u00f3n L\u00edder (DM)', c.descripcion_lider) : '',
+      ].join('');
+    }
+    case 'establecimientos': {
+      const e = data;
+      return [
+        row('Tipo', e.tipo ? `<span class="badge tipo-badge">${escapeHtml(e.tipo)}</span>` : ''),
+        row('Ciudad', e.ciudad ? relLink('ciudades', e.ciudad.notion_id, e.ciudad.nombre) : ''),
+        row('Due\u00f1o', e.dueno ? relLink('npcs', e.dueno.notion_id, e.dueno.nombre) : ''),
+        textBlock('Descripci\u00f3n', e.descripcion),
+      ].join('');
+    }
+    case 'lugares': {
+      const l = data;
+      return [
+        row('Tipo', l.tipo ? `<span class="badge tipo-badge">${escapeHtml(l.tipo)}</span>` : ''),
+        row('Regi\u00f3n', escapeHtml(l.region)),
+        row('Exploraci\u00f3n', escapeHtml(l.estado_exploracion)),
+        textBlock('Descripci\u00f3n', l.descripcion),
+      ].join('');
+    }
+    case 'items': {
+      const it = data;
+      return [
+        row('Rareza', rarezaBadge(it.rareza)),
+        row('Tipo', it.tipo ? `<span class="badge tipo-badge">${escapeHtml(it.tipo)}</span>` : ''),
+        row('Attunement', it.requiere_sintonizacion ? '\u2713 S\u00ed' : 'No'),
+        row('Portador', it.personaje ? relLink('personajes', it.personaje.notion_id, it.personaje.nombre) : '<span style="color:var(--text-dim)">Sin portador</span>'),
+      ].join('');
+    }
+    case 'notas_dm': {
+      const n = data;
+      const jugadores = n.jugadores || [];
+      return [
+        n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
+        jugadores.length ? row('Jugadores', jugadores.map(j => `<span class="player-chip">${escapeHtml(typeof j === 'string' ? j : j.nombre)}</span>`).join(' ')) : '',
+        textBlock('Resumen', n.resumen),
+        (isDM() && n.session_prep) ? `<div class="detail-section detail-section-prep"><div class="detail-label-prep">&#9876; Session Prep</div><div class="detail-text detail-text-prep">${escapeHtml(n.session_prep).replace(/\n/g,'<br>')}</div></div>` : '',
+      ].join('');
+    }
+    case 'notas_jugadores': {
+      const n = data;
+      const jugador = n.jugador ? (typeof n.jugador === 'object' ? n.jugador.nombre : n.jugador) : null;
+      return [
+        n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
+        jugador ? row('Jugador', escapeHtml(jugador)) : '',
+        textBlock('Resumen', n.resumen),
+        n.contenido ? `<div class="detail-section"><div class="detail-label">Notas de sesi\u00f3n</div><div class="detail-text">${escapeHtml(n.contenido).replace(/\n/g,'<br>')}</div></div>` : '',
+      ].join('');
+    }
+    default:
+      return `<pre style="font-size:0.75rem;color:var(--text-dim)">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  }
 }
 
 // ── RENDER PERSONAJES ─────────────────────────────────────────
 function renderPersonajes() {
   const grid = document.getElementById('grid-personajes');
   let items = DATA.players || [];
-
-  // Players see only PJs. DM sees all
   if (!isDM()) items = items.filter(p => p.es_pj);
-
   if (!items.length) { grid.innerHTML = emptyState('No hay personajes.'); return; }
 
   grid.innerHTML = items.map(p => {
     const isPJ = p.es_pj;
     const cardClass = isPJ ? 'card card-pj' : 'card card-npc-aliado';
-    const subtipo = isPJ ? `${val(p.raza)} ${val(p.clase)}` : `NPC — ${val(p.rol)}`;
-    const jugadorStr = p.jugador ? `<span class="meta-item"><span class="meta-label">Jugador:</span> ${p.jugador}</span>` : '';
-    const subclaseStr = p.subclase ? `<span class="meta-item"><span class="meta-label">Subclase:</span> ${p.subclase}</span>` : '';
+    const subtipo = isPJ ? `${val(p.raza)} ${val(p.clase)}` : `NPC \u2014 ${val(p.rol)}`;
+    const jugadorStr = p.jugador ? `<span class="meta-item"><span class="meta-label">Jugador:</span> ${typeof p.jugador === 'object' ? escapeHtml(p.jugador.nombre) : escapeHtml(p.jugador)}</span>` : '';
+    const subclaseStr = p.subclase ? `<span class="meta-item"><span class="meta-label">Subclase:</span> ${escapeHtml(p.subclase)}</span>` : '';
 
     const stats = (isPJ && (p.nivel || p.ac || p.hp_maximo)) ? `
       <div class="stat-pills">
@@ -163,22 +360,21 @@ function renderPersonajes() {
     const itemsList = (p.items_magicos && p.items_magicos.length) ? `
       <div style="margin-top:10px">
         <div style="font-family:'Cinzel',serif;font-size:0.68rem;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:4px">ITEMS M\u00c1GICOS</div>
-        <ul class="card-list">${p.items_magicos.map(i => `<li>${i.nombre}</li>`).join('')}</ul>
+        <ul class="card-list">${p.items_magicos.map(i => `<li>${escapeHtml(i.nombre)}</li>`).join('')}</ul>
       </div>` : '';
 
     return `
-    <div class="${cardClass}">
+    <div class="${cardClass}" data-section="personajes" data-notion-id="${p.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${p.nombre}</div>
+          <div class="card-title">${escapeHtml(p.nombre)}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:3px;font-style:italic">${subtipo}</div>
         </div>
-        <div class="card-actions">${editBtn('personajes', p)}</div>
       </div>
       <div class="card-body">
         <div class="card-meta">${jugadorStr}${subclaseStr}</div>
         ${stats}
-        ${p.descripcion ? `<div class="card-desc">${p.descripcion}</div>` : ''}
+        ${p.descripcion ? `<div class="card-desc">${escapeHtml(p.descripcion)}</div>` : ''}
         ${itemsList}
       </div>
     </div>`;
@@ -193,18 +389,17 @@ function renderQuests() {
   if (!items.length) { grid.innerHTML = emptyState('No hay quests visibles.'); return; }
 
   grid.innerHTML = items.map(q => {
-    const gp = q.recompensa_gp ? `<span class="quest-recompensa">&#9830; ${q.recompensa_gp} GP</span>` : '';
+    const gp = q.recompensa_gp ? `<span class="quest-recompensa">&#9830; ${escapeHtml(q.recompensa_gp)} GP</span>` : '';
     return `
-    <div class="card">
+    <div class="card" data-section="quests" data-notion-id="${q.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${q.nombre}</div>
+          <div class="card-title">${escapeHtml(q.nombre)}</div>
           <div class="card-meta" style="margin-top:6px">${estadoQuestBadge(q.estado)} ${gp}</div>
         </div>
-        <div class="card-actions">${editBtn('quests', q)}</div>
       </div>
       <div class="card-body">
-        ${q.resumen ? `<div class="card-desc" style="border-top:none;padding-top:0">${q.resumen}</div>` : ''}
+        ${q.resumen ? `<div class="card-desc" style="border-top:none;padding-top:0">${escapeHtml(q.resumen).substring(0,150)}${q.resumen.length > 150 ? '\u2026' : ''}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -219,21 +414,19 @@ function renderCiudades() {
   if (!items.length) { grid.innerHTML = emptyState('No hay ciudades.'); return; }
 
   grid.innerHTML = items.map(c => `
-    <div class="card">
+    <div class="card" data-section="ciudades" data-notion-id="${c.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${c.nombre}</div>
-          ${c.estado ? `<div style="font-size:0.75rem;color:var(--text-dim);margin-top:3px">${c.estado}</div>` : ''}
+          <div class="card-title">${escapeHtml(c.nombre)}</div>
+          ${c.estado ? `<div style="font-size:0.75rem;color:var(--text-dim);margin-top:3px">${escapeHtml(c.estado)}</div>` : ''}
         </div>
-        <div class="card-actions">${editBtn('ciudades', c)}</div>
       </div>
       <div class="card-body">
         <div class="card-meta">
-          ${c.lider ? `<span class="meta-item"><span class="meta-label">L\u00edder:</span> ${c.lider}</span>` : ''}
+          ${c.lider ? `<span class="meta-item"><span class="meta-label">L\u00edder:</span> ${escapeHtml(c.lider)}</span>` : ''}
           ${c.poblacion ? `<span class="meta-item"><span class="meta-label">Pob.:</span> ${c.poblacion.toLocaleString()}</span>` : ''}
         </div>
-        ${c.descripcion ? `<div class="card-desc">${c.descripcion}</div>` : ''}
-        ${c.descripcion_lider && isDM() ? `<div class="card-desc" style="margin-top:8px"><em>Descripci\u00f3n l\u00edder:</em> ${c.descripcion_lider}</div>` : ''}
+        ${c.descripcion ? `<div class="card-desc">${escapeHtml(c.descripcion)}</div>` : ''}
       </div>
     </div>`).join('');
 }
@@ -247,20 +440,19 @@ function renderEstablecimientos() {
   if (!items.length) { grid.innerHTML = emptyState('No hay establecimientos.'); return; }
 
   grid.innerHTML = items.map(e => `
-    <div class="card">
+    <div class="card" data-section="establecimientos" data-notion-id="${e.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${e.nombre}</div>
+          <div class="card-title">${escapeHtml(e.nombre)}</div>
           <div class="card-meta" style="margin-top:5px">
             <span class="badge tipo-badge">${val(e.tipo)}</span>
-            ${e.ciudad ? `<span style="font-size:0.75rem;color:var(--text-dim)">${e.ciudad.nombre}</span>` : ''}
+            ${e.ciudad ? `<span style="font-size:0.75rem;color:var(--text-dim)">${escapeHtml(e.ciudad.nombre)}</span>` : ''}
           </div>
         </div>
-        <div class="card-actions">${editBtn('establecimientos', e)}</div>
       </div>
       <div class="card-body">
-        ${e.dueno ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Due\u00f1o:</span> ${e.dueno.nombre}</span></div>` : ''}
-        ${e.descripcion ? `<div class="card-desc">${e.descripcion}</div>` : ''}
+        ${e.dueno ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Due\u00f1o:</span> ${escapeHtml(e.dueno.nombre)}</span></div>` : ''}
+        ${e.descripcion ? `<div class="card-desc">${escapeHtml(e.descripcion)}</div>` : ''}
       </div>
     </div>`).join('');
 }
@@ -272,54 +464,101 @@ function renderLugares() {
   if (!items.length) { grid.innerHTML = emptyState('No hay lugares registrados.'); return; }
 
   grid.innerHTML = items.map(l => `
-    <div class="card">
+    <div class="card" data-section="lugares" data-notion-id="${l.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${l.nombre}</div>
+          <div class="card-title">${escapeHtml(l.nombre)}</div>
           <div class="card-meta" style="margin-top:5px">
-            ${l.tipo ? `<span class="badge tipo-badge">${l.tipo}</span>` : ''}
-            ${l.region ? `<span style="font-size:0.75rem;color:var(--text-dim)">${l.region}</span>` : ''}
+            ${l.tipo ? `<span class="badge tipo-badge">${escapeHtml(l.tipo)}</span>` : ''}
+            ${l.region ? `<span style="font-size:0.75rem;color:var(--text-dim)">${escapeHtml(l.region)}</span>` : ''}
           </div>
         </div>
-        <div class="card-actions">${editBtn('lugares', l)}</div>
       </div>
       <div class="card-body">
-        ${l.estado_exploracion ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Exploraci\u00f3n:</span> ${l.estado_exploracion}</span></div>` : ''}
-        ${l.descripcion ? `<div class="card-desc">${l.descripcion}</div>` : ''}
+        ${l.estado_exploracion ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Exploraci\u00f3n:</span> ${escapeHtml(l.estado_exploracion)}</span></div>` : ''}
+        ${l.descripcion ? `<div class="card-desc">${escapeHtml(l.descripcion)}</div>` : ''}
       </div>
     </div>`).join('');
 }
 
 // ── RENDER NPCS ───────────────────────────────────────────────
-function renderNPCs() {
+function renderNPCFilters() {
+  const bar = document.getElementById('filter-bar-npcs');
+  if (!bar || bar.querySelector('.filter-select')) return; // already initialized
+
+  let items = DATA.npcs || [];
+  if (!isDM()) items = items.filter(n => n.conocido_jugadores);
+
+  const ciudades = [...new Set(items.map(n => n.ciudad && n.ciudad.nombre).filter(Boolean))].sort();
+  const tipos = [...new Set(items.map(n => n.tipo_npc).filter(Boolean))].sort();
+
+  bar.innerHTML = `
+    <div class="filter-bar">
+      <select class="filter-select" id="filter-npc-ciudad" onchange="renderNPCsGrid()">
+        <option value="">Todas las ciudades</option>
+        ${ciudades.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="filter-npc-rol" onchange="renderNPCsGrid()">
+        <option value="">Todos los roles</option>
+        <option value="Aliado">Aliado</option>
+        <option value="Neutral">Neutral</option>
+        <option value="Enemigo">Enemigo</option>
+      </select>
+      <select class="filter-select" id="filter-npc-estado" onchange="renderNPCsGrid()">
+        <option value="">Todos los estados</option>
+        <option value="Vivo">Vivo</option>
+        <option value="Muerto">Muerto</option>
+      </select>
+      <select class="filter-select" id="filter-npc-tipo" onchange="renderNPCsGrid()">
+        <option value="">Todos los tipos</option>
+        ${tipos.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+function renderNPCsGrid() {
   const grid = document.getElementById('grid-npcs');
   let items = DATA.npcs || [];
   if (!isDM()) items = items.filter(n => n.conocido_jugadores);
-  items = filterBySearch(items, 'search-npcs', ['nombre','tipo_npc','raza']);
-  if (!items.length) { grid.innerHTML = emptyState('No hay NPCs visibles.'); return; }
+
+  const fCiudad = document.getElementById('filter-npc-ciudad') ? document.getElementById('filter-npc-ciudad').value : '';
+  const fRol    = document.getElementById('filter-npc-rol')    ? document.getElementById('filter-npc-rol').value    : '';
+  const fEstado = document.getElementById('filter-npc-estado') ? document.getElementById('filter-npc-estado').value : '';
+  const fTipo   = document.getElementById('filter-npc-tipo')   ? document.getElementById('filter-npc-tipo').value   : '';
+
+  if (fCiudad) items = items.filter(n => n.ciudad && n.ciudad.nombre === fCiudad);
+  if (fRol)    items = items.filter(n => n.rol === fRol);
+  if (fEstado) items = items.filter(n => n.estado === fEstado);
+  if (fTipo)   items = items.filter(n => n.tipo_npc === fTipo);
+
+  if (!items.length) { grid.innerHTML = emptyState('No hay NPCs con esos filtros.'); return; }
 
   grid.innerHTML = items.map(n => `
-    <div class="card">
+    <div class="card" data-section="npcs" data-notion-id="${n.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${n.nombre}</div>
+          <div class="card-title">${escapeHtml(n.nombre)}</div>
           <div class="card-meta" style="margin-top:5px">
             ${rolBadge(n.rol)}
             ${estadoBadge(n.estado)}
-            ${n.tipo_npc ? `<span class="badge tipo-badge">${n.tipo_npc}</span>` : ''}
+            ${n.tipo_npc ? `<span class="badge tipo-badge">${escapeHtml(n.tipo_npc)}</span>` : ''}
           </div>
         </div>
-        <div class="card-actions">${editBtn('npcs', n)}</div>
       </div>
       <div class="card-body">
         <div class="card-meta">
-          ${n.raza ? `<span class="meta-item"><span class="meta-label">Raza:</span> ${n.raza}</span>` : ''}
-          ${n.ciudad ? `<span class="meta-item"><span class="meta-label">Ciudad:</span> ${n.ciudad.nombre}</span>` : ''}
-          ${n.establecimiento ? `<span class="meta-item"><span class="meta-label">Lugar:</span> ${n.establecimiento.nombre}</span>` : ''}
+          ${n.raza ? `<span class="meta-item"><span class="meta-label">Raza:</span> ${escapeHtml(n.raza)}</span>` : ''}
+          ${n.ciudad ? `<span class="meta-item"><span class="meta-label">Ciudad:</span> ${escapeHtml(n.ciudad.nombre)}</span>` : ''}
+          ${n.establecimiento ? `<span class="meta-item"><span class="meta-label">Lugar:</span> ${escapeHtml(n.establecimiento.nombre)}</span>` : ''}
         </div>
-        ${n.descripcion ? `<div class="card-desc">${n.descripcion}</div>` : ''}
+        ${n.descripcion ? `<div class="card-desc">${escapeHtml(n.descripcion).substring(0,120)}${n.descripcion.length > 120 ? '\u2026' : ''}</div>` : ''}
       </div>
     </div>`).join('');
+}
+
+function renderNPCs() {
+  renderNPCFilters();
+  renderNPCsGrid();
 }
 
 // ── RENDER ITEMS ──────────────────────────────────────────────
@@ -331,20 +570,19 @@ function renderItems() {
   if (!items.length) { grid.innerHTML = emptyState('No hay items visibles.'); return; }
 
   grid.innerHTML = items.map(it => `
-    <div class="card">
+    <div class="card" data-section="items" data-notion-id="${it.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${it.nombre}</div>
+          <div class="card-title">${escapeHtml(it.nombre)}</div>
           <div class="card-meta" style="margin-top:5px">
             ${rarezaBadge(it.rareza)}
-            ${it.tipo ? `<span class="badge tipo-badge">${it.tipo}</span>` : ''}
+            ${it.tipo ? `<span class="badge tipo-badge">${escapeHtml(it.tipo)}</span>` : ''}
           </div>
         </div>
-        <div class="card-actions">${editBtn('items', it)}</div>
       </div>
       <div class="card-body">
         <div class="card-meta">
-          ${it.personaje ? `<span class="meta-item"><span class="meta-label">Portador:</span> ${it.personaje.nombre}</span>` : '<span class="meta-item" style="color:var(--text-dim)">Sin portador</span>'}
+          ${it.personaje ? `<span class="meta-item"><span class="meta-label">Portador:</span> ${escapeHtml(it.personaje.nombre)}</span>` : '<span class="meta-item" style="color:var(--text-dim)">Sin portador</span>'}
           ${it.requiere_sintonizacion ? `<span class="badge badge-rare" style="font-size:0.58rem">Attunement</span>` : ''}
         </div>
       </div>
@@ -352,19 +590,35 @@ function renderItems() {
 }
 
 // ── RENDER NOTAS ──────────────────────────────────────────────
-function renderNotas() {
+function renderNotaTypeFilter() {
+  const bar = document.getElementById('filter-bar-notas');
+  if (!bar || bar.querySelector('.filter-bar')) return; // already initialized
+  if (!isDM()) return; // players have no filter
+
+  bar.innerHTML = `
+    <div class="filter-bar">
+      <select class="filter-select" id="filter-nota-tipo" onchange="renderNotasGrid()">
+        <option value="">Todas las notas</option>
+        <option value="dm">Solo DM</option>
+        <option value="player">Solo Jugadores</option>
+      </select>
+    </div>`;
+}
+
+function renderNotasGrid() {
   const grid = document.getElementById('grid-notas');
+  const filterTipo = document.getElementById('filter-nota-tipo') ? document.getElementById('filter-nota-tipo').value : '';
   let items = [];
 
   if (isDM()) {
     const dm = (DATA.notas_dm || []).map(n => ({...n, _tipo: 'dm'}));
     const pl = (DATA.notas_jugadores || []).map(n => ({...n, _tipo: 'player'}));
     items = [...dm, ...pl];
+    if (filterTipo) items = items.filter(n => n._tipo === filterTipo);
   } else {
     items = (DATA.notas_jugadores || []).map(n => ({...n, _tipo: 'player'}));
   }
 
-  // Sort by date desc
   items.sort((a,b) => {
     const da = a.fecha || '0000';
     const db = b.fecha || '0000';
@@ -374,35 +628,38 @@ function renderNotas() {
   if (!items.length) { grid.innerHTML = emptyState('No hay notas de sesi\u00f3n.'); return; }
 
   grid.innerHTML = items.map(n => {
+    const sectionKey = n._tipo === 'dm' ? 'notas_dm' : 'notas_jugadores';
     const tipoLabel = n._tipo === 'dm'
       ? `<span class="nota-tipo nota-tipo-dm">DM</span>`
       : `<span class="nota-tipo nota-tipo-player">Jugador</span>`;
 
-    let jugadoresHtml = '';
     const jugadores = n.jugadores || (n.jugador ? [n.jugador] : []);
-    if (jugadores.length) {
-      jugadoresHtml = `<div class="nota-players">${jugadores.map(j => {
-        const name = typeof j === 'string' ? j : j.nombre;
-        return `<span class="player-chip">${name}</span>`;
-      }).join('')}</div>`;
-    }
+    const jugadoresHtml = jugadores.length
+      ? `<div class="nota-players">${jugadores.map(j => `<span class="player-chip">${escapeHtml(typeof j === 'string' ? j : j.nombre)}</span>`).join('')}</div>`
+      : '';
+
+    const preview = n.resumen
+      ? `<div class="card-desc" style="border-top:none;padding-top:0">${escapeHtml(n.resumen).substring(0,120)}${n.resumen.length > 120 ? '\u2026' : ''}</div>`
+      : `<div class="card-desc" style="border-top:none;padding-top:0;opacity:0.5">Sin resumen a\u00fan.</div>`;
 
     return `
-    <div class="card nota-card">
+    <div class="card nota-card" data-section="${sectionKey}" data-notion-id="${n.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
-        <div class="card-title">${n.nombre}</div>
-        <div class="card-actions">${editBtn(n._tipo === 'dm' ? 'notas_dm' : 'notas_jugadores', n)}</div>
+        <div class="card-title">${escapeHtml(n.nombre)}</div>
         <div class="nota-meta">
           ${tipoLabel}
-          ${n.fecha ? `<span class="nota-date">${n.fecha}</span>` : ''}
+          ${n.fecha ? `<span class="nota-date">${escapeHtml(n.fecha)}</span>` : ''}
           ${jugadoresHtml}
         </div>
       </div>
-      <div class="card-body">
-        ${n.resumen ? `<div class="card-desc" style="border-top:none;padding-top:0">${n.resumen}</div>` : '<div class="card-desc" style="border-top:none;padding-top:0;opacity:0.5">Sin resumen a\u00fan.</div>'}
-      </div>
+      <div class="card-body">${preview}</div>
     </div>`;
   }).join('');
+}
+
+function renderNotas() {
+  renderNotaTypeFilter();
+  renderNotasGrid();
 }
 
 // ── PENDING CHANGES ──────────────────────────────────────────
@@ -422,32 +679,32 @@ function savePending() {
   updatePendingBadge();
 }
 
-// ── MODAL ────────────────────────────────────────────────────
+// ── MODAL (Edit/Add) ─────────────────────────────────────────
 const FORM_SCHEMAS = {
   personajes: [
-    { key:'nombre', label:'Nombre', type:'text', required:true },
-    { key:'clase',  label:'Clase',  type:'text' },
-    { key:'subclase', label:'Subclase', type:'text' },
-    { key:'raza',   label:'Raza',   type:'text' },
-    { key:'jugador', label:'Jugador', type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
-    { key:'nivel',  label:'Nivel',  type:'number' },
-    { key:'ac',     label:'AC',     type:'number' },
+    { key:'nombre',    label:'Nombre',    type:'text', required:true },
+    { key:'clase',     label:'Clase',     type:'text' },
+    { key:'subclase',  label:'Subclase',  type:'text' },
+    { key:'raza',      label:'Raza',      type:'text' },
+    { key:'jugador',   label:'Jugador',   type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
+    { key:'nivel',     label:'Nivel',     type:'number' },
+    { key:'ac',        label:'AC',        type:'number' },
     { key:'hp_maximo', label:'HP M\u00e1x', type:'number' },
     { key:'descripcion', label:'Descripci\u00f3n', type:'textarea' },
-    { key:'es_pj',  label:'Es PJ',  type:'checkbox' },
+    { key:'es_pj',     label:'Es PJ',     type:'checkbox' },
   ],
   quests: [
-    { key:'nombre',  label:'Nombre', type:'text', required:true },
-    { key:'estado',  label:'Estado', type:'select', options:['Activa','Completada','Fallida','En Pausa'] },
+    { key:'nombre',   label:'Nombre',  type:'text', required:true },
+    { key:'estado',   label:'Estado',  type:'select', options:['Activa','Completada','Fallida','En Pausa'] },
     { key:'recompensa_gp', label:'Recompensa GP', type:'text' },
-    { key:'resumen', label:'Resumen', type:'textarea' },
+    { key:'resumen',  label:'Resumen', type:'textarea' },
     { key:'visible_jugadores', label:'Visible para jugadores', type:'checkbox' },
   ],
   ciudades: [
-    { key:'nombre',   label:'Nombre', type:'text', required:true },
-    { key:'estado',   label:'Reino / Estado', type:'text' },
-    { key:'lider',    label:'L\u00edder', type:'text' },
-    { key:'poblacion',label:'Poblaci\u00f3n', type:'number' },
+    { key:'nombre',    label:'Nombre',   type:'text', required:true },
+    { key:'estado',    label:'Reino / Estado', type:'text' },
+    { key:'lider',     label:'L\u00edder', type:'text' },
+    { key:'poblacion', label:'Poblaci\u00f3n', type:'number' },
     { key:'descripcion', label:'Descripci\u00f3n', type:'textarea' },
     { key:'descripcion_lider', label:'Descripci\u00f3n L\u00edder', type:'textarea' },
     { key:'conocida_jugadores', label:'Conocida por jugadores', type:'checkbox' },
@@ -459,35 +716,35 @@ const FORM_SCHEMAS = {
     { key:'conocido_jugadores', label:'Conocido por jugadores', type:'checkbox' },
   ],
   lugares: [
-    { key:'nombre', label:'Nombre', type:'text', required:true },
-    { key:'tipo',   label:'Tipo',   type:'text' },
-    { key:'region', label:'Regi\u00f3n', type:'text' },
+    { key:'nombre',  label:'Nombre', type:'text', required:true },
+    { key:'tipo',    label:'Tipo',   type:'text' },
+    { key:'region',  label:'Regi\u00f3n', type:'text' },
     { key:'estado_exploracion', label:'Estado Exploraci\u00f3n', type:'text' },
     { key:'descripcion', label:'Descripci\u00f3n', type:'textarea' },
   ],
   npcs: [
     { key:'nombre',   label:'Nombre', type:'text', required:true },
-    { key:'raza',     label:'Raza', type:'text' },
+    { key:'raza',     label:'Raza',   type:'text' },
     { key:'tipo_npc', label:'Tipo NPC', type:'text' },
-    { key:'rol',      label:'Rol', type:'select', options:['Neutral','Aliado','Enemigo'] },
+    { key:'rol',      label:'Rol',    type:'select', options:['Neutral','Aliado','Enemigo'] },
     { key:'estado',   label:'Estado', type:'select', options:['Vivo','Muerto'] },
     { key:'descripcion', label:'Descripci\u00f3n', type:'textarea' },
     { key:'conocido_jugadores', label:'Conocido por jugadores', type:'checkbox' },
   ],
   items: [
     { key:'nombre',  label:'Nombre', type:'text', required:true },
-    { key:'tipo',    label:'Tipo', type:'text' },
+    { key:'tipo',    label:'Tipo',   type:'text' },
     { key:'rareza',  label:'Rareza', type:'select', options:['','Common','Uncommon','Rare','Very Rare','Legendary','Artifact'] },
     { key:'requiere_sintonizacion', label:'Requiere Attunement', type:'checkbox' },
   ],
   notas_dm: [
-    { key:'nombre', label:'T\u00edtulo', type:'text', required:true },
-    { key:'fecha',  label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
+    { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
   notas_jugadores: [
-    { key:'nombre', label:'T\u00edtulo', type:'text', required:true },
-    { key:'fecha',  label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
+    { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
 };
@@ -500,18 +757,19 @@ const SECTION_LABELS = {
 
 function openModal(section, data) {
   currentModalSection = section;
-  currentModalData = data;
+  currentModalData = data || null;
+  currentModalMode = 'edit';
   const label = SECTION_LABELS[section] || section;
   document.getElementById('modal-title').textContent = data ? `Editar ${label}` : `A\u00f1adir ${label}`;
 
   const schema = FORM_SCHEMAS[section] || [];
   const body = document.getElementById('modal-body');
+  body.classList.remove('is-detail');
 
   body.innerHTML = schema.map(field => {
     const v = data ? (data[field.key] !== undefined ? data[field.key] : '') : (field.type === 'checkbox' ? false : '');
-
     if (field.type === 'textarea') {
-      return `<div class="form-group"><label>${field.label}</label><textarea id="field-${field.key}" rows="4">${v || ''}</textarea></div>`;
+      return `<div class="form-group"><label>${field.label}</label><textarea id="field-${field.key}" rows="4">${escapeHtml(v || '')}</textarea></div>`;
     }
     if (field.type === 'checkbox') {
       return `<div class="form-group"><div class="form-check"><input type="checkbox" id="field-${field.key}" ${v ? 'checked' : ''}><label for="field-${field.key}">${field.label}</label></div></div>`;
@@ -520,16 +778,24 @@ function openModal(section, data) {
       const opts = field.options.map(o => `<option value="${o}" ${o === v ? 'selected' : ''}>${o || '\u2014 Ninguno \u2014'}</option>`).join('');
       return `<div class="form-group"><label>${field.label}</label><select id="field-${field.key}">${opts}</select></div>`;
     }
-    return `<div class="form-group"><label>${field.label}${field.required ? ' *' : ''}</label><input type="${field.type || 'text'}" id="field-${field.key}" value="${v !== null && v !== undefined ? v : ''}"></div>`;
+    return `<div class="form-group"><label>${field.label}${field.required ? ' *' : ''}</label><input type="${field.type || 'text'}" id="field-${field.key}" value="${escapeHtml(v !== null && v !== undefined ? String(v) : '')}"></div>`;
   }).join('');
+
+  const footer = document.getElementById('modal-footer');
+  footer.innerHTML = `
+    <button class="btn" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-success" onclick="saveModal()">Guardar</button>
+  `;
 
   document.getElementById('modal-overlay').classList.add('open');
 }
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('modal-body').classList.remove('is-detail');
   currentModalSection = null;
   currentModalData = null;
+  currentModalMode = null;
 }
 
 function saveModal() {
@@ -554,14 +820,12 @@ function saveModal() {
     }
   }
 
-  // Map 'notas' section to actual key
   let tableKey = currentModalSection;
   if (tableKey === 'notas') tableKey = 'notas_dm';
 
-  const action = currentModalData ? 'edit' : 'add';
+  const action = (currentModalData && currentModalData.notion_id) ? 'edit' : 'add';
   PENDING_CHANGES.push({ action, table: tableKey, data: newData });
 
-  // Update local data
   if (!DATA[tableKey]) DATA[tableKey] = [];
   if (action === 'add') {
     DATA[tableKey].push(newData);
@@ -584,9 +848,7 @@ async function importarDesdeNotion() {
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    const res = await fetch(CONFIG.WEBHOOK_IMPORT, { method: 'POST' });
-    const json = await res.json();
-    // Reload data
+    await fetch(CONFIG.WEBHOOK_IMPORT, { method: 'POST' });
     await loadData();
     renderAll();
     alert('\u2713 Datos importados correctamente.');
