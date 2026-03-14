@@ -75,6 +75,7 @@
           <button class="btn dm-only" onclick="openModal('notas', null)">&#43; Añadir</button>
         </div>
       </div>
+      <div id="filter-bar-notas"></div>
       <div class="cards-grid cards-grid-wide" id="grid-notas"></div>
     </section>
 
@@ -86,6 +87,7 @@
           <button class="btn dm-only" onclick="openModal('npcs', null)">&#43; Añadir</button>
         </div>
       </div>
+      <div id="filter-bar-npcs"></div>
       <div class="cards-grid" id="grid-npcs"></div>
     </section>
 
@@ -159,14 +161,11 @@
 <div id="modal-overlay">
   <div class="modal">
     <div class="modal-header">
-      <span class="modal-title" id="modal-title">Formulario</span>
+      <span class="modal-title" id="modal-title">Detalle</span>
       <button class="modal-close" onclick="closeModal()">&times;</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
-    <div class="modal-footer">
-      <button class="btn btn-danger" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-success" onclick="saveModal()">&#10003; Guardar</button>
-    </div>
+    <div class="modal-footer" id="modal-footer"></div>
   </div>
 </div>
 
