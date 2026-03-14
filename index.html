@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HALO — Campaña D&D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================================================
+     LOGIN SCREEN
+     ============================================================ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">⚔ HALO</div>
+    <div class="login-subtitle">Campaña de Dungeons &amp; Dragons</div>
+    <div class="login-divider"></div>
+    <form id="login-form" autocomplete="off">
+      <label for="password-input">Contraseña de acceso</label>
+      <input type="password" id="password-input" placeholder="Introduce tu contraseña..." autofocus>
+      <button type="submit" class="btn-login">&#9660; Entrar al reino &#9660;</button>
+    </form>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-ornament">✦ ✦ ✦</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP
+     ============================================================ -->
+<div id="app">
+
+  <!-- HEADER -->
+  <header id="header">
+    <div class="header-logo">⚔ HALO</div>
+    <div class="header-actions">
+      <div id="pending-badge">
+        <span>&#9670;</span>
+        <span id="pending-count">0</span> cambios pendientes
+      </div>
+      <button class="btn btn-success dm-only" id="btn-export" onclick="exportarANotion()">
+        <span>&#8593;</span> <span>Exportar</span>
+      </button>
+      <button class="btn dm-only" id="btn-import" onclick="importarDesdeNotion()">
+        <span>&#8595;</span> <span>Importar</span>
+      </button>
+      <button class="btn btn-danger" onclick="logout()">
+        <span>&#10005;</span> <span>Salir</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- TAB BAR -->
+  <nav id="tab-bar">
+    <button class="tab-btn active" data-tab="personajes">Personajes</button>
+    <button class="tab-btn" data-tab="quests">Quests</button>
+    <button class="tab-btn" data-tab="ciudades">Ciudades</button>
+    <button class="tab-btn" data-tab="establecimientos">Establecimientos</button>
+    <button class="tab-btn" data-tab="lugares">Lugares</button>
+    <button class="tab-btn" data-tab="npcs">NPCs</button>
+    <button class="tab-btn" data-tab="items">Items</button>
+    <button class="tab-btn" data-tab="notas">Notas</button>
+  </nav>
+
+  <!-- CONTENT -->
+  <main id="content">
+
+    <!-- PERSONAJES -->
+    <section id="section-personajes" class="section active">
+      <div class="section-header">
+        <h2 class="section-title">⚔ Personajes</h2>
+        <div class="section-controls">
+          <button class="btn dm-only" onclick="openModal('personajes', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-personajes"></div>
+    </section>
+
+    <!-- QUESTS -->
+    <section id="section-quests" class="section">
+      <div class="section-header">
+        <h2 class="section-title">★ Quests</h2>
+        <div class="section-controls">
+          <button class="btn dm-only" onclick="openModal('quests', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-quests"></div>
+    </section>
+
+    <!-- CIUDADES -->
+    <section id="section-ciudades" class="section">
+      <div class="section-header">
+        <h2 class="section-title">🏙 Ciudades</h2>
+        <div class="section-controls">
+          <input type="text" class="search-input" id="search-ciudades" placeholder="Buscar ciudad..." oninput="renderCiudades()">
+          <button class="btn dm-only" onclick="openModal('ciudades', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-ciudades"></div>
+    </section>
+
+    <!-- ESTABLECIMIENTOS -->
+    <section id="section-establecimientos" class="section">
+      <div class="section-header">
+        <h2 class="section-title">🏪 Establecimientos</h2>
+        <div class="section-controls">
+          <input type="text" class="search-input" id="search-establecimientos" placeholder="Buscar..." oninput="renderEstablecimientos()">
+          <button class="btn dm-only" onclick="openModal('establecimientos', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-establecimientos"></div>
+    </section>
+
+    <!-- LUGARES -->
+    <section id="section-lugares" class="section">
+      <div class="section-header">
+        <h2 class="section-title">🗺 Lugares</h2>
+        <div class="section-controls">
+          <button class="btn dm-only" onclick="openModal('lugares', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-lugares"></div>
+    </section>
+
+    <!-- NPCS -->
+    <section id="section-npcs" class="section">
+      <div class="section-header">
+        <h2 class="section-title">👤 NPCs</h2>
+        <div class="section-controls">
+          <input type="text" class="search-input" id="search-npcs" placeholder="Buscar NPC..." oninput="renderNPCs()">
+          <button class="btn dm-only" onclick="openModal('npcs', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-npcs"></div>
+    </section>
+
+    <!-- ITEMS -->
+    <section id="section-items" class="section">
+      <div class="section-header">
+        <h2 class="section-title">⚔ Items Mágicos</h2>
+        <div class="section-controls">
+          <input type="text" class="search-input" id="search-items" placeholder="Buscar item..." oninput="renderItems()">
+          <button class="btn dm-only" onclick="openModal('items', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="grid-items"></div>
+    </section>
+
+    <!-- NOTAS -->
+    <section id="section-notas" class="section">
+      <div class="section-header">
+        <h2 class="section-title">📓 Notas de Sesión</h2>
+        <div class="section-controls">
+          <button class="btn dm-only" onclick="openModal('notas', null)">&#43; Añadir</button>
+        </div>
+      </div>
+      <div class="cards-grid cards-grid-wide" id="grid-notas"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================================================
+     MODAL
+     ============================================================ -->
+<div id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Formulario</span>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="saveModal()">&#10003; Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- SPINNER -->
+<div class="spinner-overlay" id="spinner">
+  <div class="spinner"></div>
+  <div class="spinner-text">Sincronizando...</div>
+</div>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
