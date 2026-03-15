@@ -37,21 +37,21 @@
   <header id="header">
     <div class="header-logo">⚔ HALO</div>
     <div class="header-actions">
-      <div id="pending-badge">
-        <span>&#9670;</span>
-        <span id="pending-count">0</span> cambios pendientes
-      </div>
-      <button class="btn btn-success dm-only" id="btn-export" onclick="exportarANotion()">
-        <span>&#8593;</span> <span>Exportar</span>
+      <button class="btn dm-only btn-sm" onclick="recargarDatos()" title="Recargar datos desde GitHub">
+        <span>&#8635;</span> <span>Recargar</span>
       </button>
-      <button class="btn dm-only" id="btn-import" onclick="importarDesdeNotion()">
-        <span>&#8595;</span> <span>Importar</span>
-      </button>
+      <button class="btn dm-only btn-sm btn-icon" onclick="configurarToken()" title="Configurar token GitHub">⚙</button>
       <button class="btn btn-danger" onclick="logout()">
         <span>&#10005;</span> <span>Salir</span>
       </button>
     </div>
   </header>
+
+  <!-- TOKEN NOTICE (visible solo si DM no tiene token) -->
+  <div id="token-notice" style="display:none; align-items:center; gap:12px; padding:8px 20px; background:rgba(204,119,0,0.12); border-bottom:1px solid #7a4d00; font-family:'Cinzel',serif; font-size:0.7rem; color:#ffcc44; letter-spacing:0.05em;">
+    <span>&#9888; Token de GitHub no configurado — no podrás guardar cambios.</span>
+    <button class="btn btn-sm" onclick="configurarToken()">Configurar</button>
+  </div>
 
   <!-- TAB BAR -->
   <nav id="tab-bar">
@@ -172,7 +172,7 @@
 <!-- SPINNER -->
 <div class="spinner-overlay" id="spinner">
   <div class="spinner"></div>
-  <div class="spinner-text">Sincronizando...</div>
+  <div class="spinner-text">Guardando...</div>
 </div>
 
 <script src="config.js"></script>

@@ -3,14 +3,13 @@
    app.js — Full application logic
    ============================================================= */
 
-// ── DATA STORE ──────────────────────────────────────────────
+// ── DATA STORE ────────────────────────────────────────────
 const DATA = {};
-let PENDING_CHANGES = JSON.parse(localStorage.getItem('pendingChanges') || '[]');
 let currentModalSection = null;
 let currentModalData = null;
 let currentModalMode = null; // 'detail' | 'edit'
 
-// ── INIT ─────────────────────────────────────────────────────
+// ── INIT ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -46,15 +45,41 @@ async function bootApp() {
 
   await loadData();
   renderAll();
-  updatePendingBadge();
+
+  // Avisar al DM si no tiene token configurado
+  if (isDM() && !getGitHubToken()) {
+    const notice = document.getElementById('token-notice');
+    if (notice) notice.style.display = 'flex';
+  }
 }
 
-// ── DATA LOADING ─────────────────────────────────────────────
+// ── GITHUB TOKEN ──────────────────────────────────────────
+function getGitHubToken() {
+  return localStorage.getItem('gh_token') || '';
+}
+
+function configurarToken() {
+  const current = getGitHubToken();
+  const token = prompt(
+    'GitHub Personal Access Token\n\n' +
+    'Necesitas un token con permiso de escritura en el repo dnd-halo.\n' +
+    'C\u00f3mo crear uno: github.com/settings/tokens\n\n' +
+    (current ? '(Ya tienes uno configurado — pega uno nuevo para reemplazarlo)' : 'Pega tu token aqu\u00ed:')
+  );
+  if (token && token.trim()) {
+    localStorage.setItem('gh_token', token.trim());
+    const notice = document.getElementById('token-notice');
+    if (notice) notice.style.display = 'none';
+    alert('\u2713 Token guardado en este dispositivo.');
+  }
+}
+
+// ── DATA LOADING ──────────────────────────────────────────────
 async function loadData() {
   const files = ['players','quests','ciudades','establecimientos','lugares','npcs','items','notas_dm','notas_jugadores'];
   await Promise.all(files.map(async (f) => {
     try {
-      const res = await fetch(`data/${f}.json`);
+      const res = await fetch(`data/${f}.json?t=${Date.now()}`);
       DATA[f] = await res.json();
     } catch(e) {
       DATA[f] = [];
@@ -62,7 +87,7 @@ async function loadData() {
   }));
 }
 
-// ── TAB SWITCHING ─────────────────────────────────────────────
+// ── TAB SWITCHING ───────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === `section-${tab}`));
@@ -80,8 +105,8 @@ function renderAll() {
   renderNotas();
 }
 
-// ── HELPERS ───────────────────────────────────────────────────
-function val(v, fallback='\u2014') {
+// ── HELPERS ───────────────────────────────────────────────────────
+function val(v, fallback='—') {
   if (v === null || v === undefined || v === '') return fallback;
   return v;
 }
@@ -139,7 +164,7 @@ function estadoBadge(e) {
   return `<span class="badge ${e === 'Vivo' ? 'estado-vivo' : 'estado-muerto'}">${e}</span>`;
 }
 
-// ── NAVIGATE TO CARD ──────────────────────────────────────────
+// ── NAVIGATE TO CARD ─────────────────────────────────────────────
 function navegarA(tab, notionId) {
   closeModal();
   switchTab(tab);
@@ -153,9 +178,8 @@ function navegarA(tab, notionId) {
   }, 120);
 }
 
-// ── DETAIL MODAL ──────────────────────────────────────────────
+// ── DETAIL MODAL ────────────────────────────────────────────────
 function openDetailFromCard(el) {
-  // Prevent opening if user clicked a rel-link inside the card
   const section = el.dataset.section;
   const notionId = el.dataset.notionId;
   let arr;
@@ -336,7 +360,7 @@ function buildDetailHTML(section, data) {
   }
 }
 
-// ── RENDER PERSONAJES ─────────────────────────────────────────
+// ── RENDER PERSONAJES ───────────────────────────────────────────────
 function renderPersonajes() {
   const grid = document.getElementById('grid-personajes');
   let items = DATA.players || [];
@@ -381,7 +405,7 @@ function renderPersonajes() {
   }).join('');
 }
 
-// ── RENDER QUESTS ─────────────────────────────────────────────
+// ── RENDER QUESTS ──────────────────────────────────────────────────
 function renderQuests() {
   const grid = document.getElementById('grid-quests');
   let items = DATA.quests || [];
@@ -405,7 +429,7 @@ function renderQuests() {
   }).join('');
 }
 
-// ── RENDER CIUDADES ───────────────────────────────────────────
+// ── RENDER CIUDADES ─────────────────────────────────────────────────
 function renderCiudades() {
   const grid = document.getElementById('grid-ciudades');
   let items = DATA.ciudades || [];
@@ -431,7 +455,7 @@ function renderCiudades() {
     </div>`).join('');
 }
 
-// ── RENDER ESTABLECIMIENTOS ───────────────────────────────────
+// ── RENDER ESTABLECIMIENTOS ───────────────────────────────────────────
 function renderEstablecimientos() {
   const grid = document.getElementById('grid-establecimientos');
   let items = DATA.establecimientos || [];
@@ -457,7 +481,7 @@ function renderEstablecimientos() {
     </div>`).join('');
 }
 
-// ── RENDER LUGARES ────────────────────────────────────────────
+// ── RENDER LUGARES ──────────────────────────────────────────────────
 function renderLugares() {
   const grid = document.getElementById('grid-lugares');
   let items = DATA.lugares || [];
@@ -481,10 +505,10 @@ function renderLugares() {
     </div>`).join('');
 }
 
-// ── RENDER NPCS ───────────────────────────────────────────────
+// ── RENDER NPCS ─────────────────────────────────────────────────────
 function renderNPCFilters() {
   const bar = document.getElementById('filter-bar-npcs');
-  if (!bar || bar.querySelector('.filter-select')) return; // already initialized
+  if (!bar || bar.querySelector('.filter-select')) return;
 
   let items = DATA.npcs || [];
   if (!isDM()) items = items.filter(n => n.conocido_jugadores);
@@ -561,7 +585,7 @@ function renderNPCs() {
   renderNPCsGrid();
 }
 
-// ── RENDER ITEMS ──────────────────────────────────────────────
+// ── RENDER ITEMS ───────────────────────────────────────────────────────
 function renderItems() {
   const grid = document.getElementById('grid-items');
   let items = DATA.items || [];
@@ -589,11 +613,11 @@ function renderItems() {
     </div>`).join('');
 }
 
-// ── RENDER NOTAS ──────────────────────────────────────────────
+// ── RENDER NOTAS ─────────────────────────────────────────────────────
 function renderNotaTypeFilter() {
   const bar = document.getElementById('filter-bar-notas');
-  if (!bar || bar.querySelector('.filter-bar')) return; // already initialized
-  if (!isDM()) return; // players have no filter
+  if (!bar || bar.querySelector('.filter-bar')) return;
+  if (!isDM()) return;
 
   bar.innerHTML = `
     <div class="filter-bar">
@@ -662,24 +686,46 @@ function renderNotas() {
   renderNotasGrid();
 }
 
-// ── PENDING CHANGES ──────────────────────────────────────────
-function updatePendingBadge() {
-  const badge = document.getElementById('pending-badge');
-  const countEl = document.getElementById('pending-count');
-  if (PENDING_CHANGES.length > 0) {
-    badge.classList.add('visible');
-    countEl.textContent = PENDING_CHANGES.length;
-  } else {
-    badge.classList.remove('visible');
+// ── GITHUB SAVE ───────────────────────────────────────────────────
+const DATA_KEY_MAP = { personajes: 'players' };
+const FILE_MAP = {
+  players: 'players.json',     personajes: 'players.json',
+  quests: 'quests.json',       ciudades: 'ciudades.json',
+  establecimientos: 'establecimientos.json', lugares: 'lugares.json',
+  npcs: 'npcs.json',           items: 'items.json',
+  notas_dm: 'notas_dm.json',   notas_jugadores: 'notas_jugadores.json',
+};
+
+async function saveToGitHub(filename, data) {
+  const token = getGitHubToken();
+  if (!token) throw new Error('Token de GitHub no configurado. Usa el bot\u00f3n \u2699 en el encabezado.');
+
+  const base = `https://api.github.com/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/contents/data/${filename}`;
+  const headers = {
+    'Authorization': `token ${token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json'
+  };
+
+  // Obtener SHA actual del archivo
+  const getRes = await fetch(base, { headers });
+  if (!getRes.ok) throw new Error(`Error al leer ${filename}: ${getRes.status}`);
+  const { sha } = await getRes.json();
+
+  // Subir contenido actualizado
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
+  const putRes = await fetch(base, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ message: `Update ${filename} via web`, content, sha })
+  });
+  if (!putRes.ok) {
+    const err = await putRes.json().catch(() => ({}));
+    throw new Error(err.message || `GitHub error ${putRes.status}`);
   }
 }
 
-function savePending() {
-  localStorage.setItem('pendingChanges', JSON.stringify(PENDING_CHANGES));
-  updatePendingBadge();
-}
-
-// ── MODAL (Edit/Add) ─────────────────────────────────────────
+// ── MODAL (Edit/Add) ─────────────────────────────────────────────────
 const FORM_SCHEMAS = {
   personajes: [
     { key:'nombre',    label:'Nombre',    type:'text', required:true },
@@ -747,6 +793,11 @@ const FORM_SCHEMAS = {
     { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
+  notas: [
+    { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
+    { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'resumen', label:'Resumen', type:'textarea' },
+  ],
 };
 
 const SECTION_LABELS = {
@@ -798,8 +849,14 @@ function closeModal() {
   currentModalMode = null;
 }
 
-function saveModal() {
+async function saveModal() {
   if (!currentModalSection) return;
+
+  if (!getGitHubToken()) {
+    configurarToken();
+    return;
+  }
+
   const schema = FORM_SCHEMAS[currentModalSection] || [];
   const newData = currentModalData ? {...currentModalData} : { notion_id: null };
 
@@ -822,65 +879,43 @@ function saveModal() {
 
   let tableKey = currentModalSection;
   if (tableKey === 'notas') tableKey = 'notas_dm';
-
+  const dataKey = DATA_KEY_MAP[tableKey] || tableKey;
+  const filename = FILE_MAP[tableKey] || `${tableKey}.json`;
   const action = (currentModalData && currentModalData.notion_id) ? 'edit' : 'add';
-  PENDING_CHANGES.push({ action, table: tableKey, data: newData });
 
-  if (!DATA[tableKey]) DATA[tableKey] = [];
+  if (!DATA[dataKey]) DATA[dataKey] = [];
+  const snapshot = [...DATA[dataKey]]; // backup para rollback
+
   if (action === 'add') {
-    DATA[tableKey].push(newData);
+    DATA[dataKey].push(newData);
   } else {
-    const idx = DATA[tableKey].findIndex(i => i.notion_id === newData.notion_id);
-    if (idx >= 0) DATA[tableKey][idx] = newData;
+    const idx = DATA[dataKey].findIndex(i => i.notion_id === newData.notion_id);
+    if (idx >= 0) DATA[dataKey][idx] = newData;
   }
 
-  savePending();
-  closeModal();
-  renderAll();
-}
-
-// ── SYNC ─────────────────────────────────────────────────────
-async function importarDesdeNotion() {
-  if (!CONFIG.WEBHOOK_IMPORT) {
-    alert('Webhook de importaci\u00f3n no configurado.');
-    return;
-  }
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    await fetch(CONFIG.WEBHOOK_IMPORT, { method: 'POST' });
-    await loadData();
+    await saveToGitHub(filename, DATA[dataKey]);
+    closeModal();
     renderAll();
-    alert('\u2713 Datos importados correctamente.');
   } catch(e) {
-    alert('Error al importar: ' + e.message);
+    DATA[dataKey] = snapshot; // revertir cambio local
+    alert('Error al guardar en GitHub: ' + e.message);
   } finally {
     spinner.classList.remove('open');
   }
 }
 
-async function exportarANotion() {
-  if (!CONFIG.WEBHOOK_EXPORT) {
-    alert('Webhook de exportaci\u00f3n no configurado.');
-    return;
-  }
-  if (PENDING_CHANGES.length === 0) {
-    alert('No hay cambios pendientes para exportar.');
-    return;
-  }
+// ── RELOAD DATA ───────────────────────────────────────────────────
+async function recargarDatos() {
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    await fetch(CONFIG.WEBHOOK_EXPORT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ changes: PENDING_CHANGES })
-    });
-    PENDING_CHANGES = [];
-    savePending();
-    alert('\u2713 Cambios exportados a Notion correctamente.');
+    await loadData();
+    renderAll();
   } catch(e) {
-    alert('Error al exportar: ' + e.message);
+    alert('Error al recargar: ' + e.message);
   } finally {
     spinner.classList.remove('open');
   }
