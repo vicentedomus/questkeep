@@ -1067,7 +1067,6 @@ const MAP_LAYER_GROUPS = [
   { label: 'Reinos',      ids: ['regions'],                 on: false },
   { label: 'Fronteras',   ids: ['borders'],                 on: false },
   { label: 'Culturas',    ids: ['cults'],                   on: false },
-  { label: 'Etiquetas',   ids: ['states'],                  on: false },
 ];
 
 async function renderMapa() {
@@ -1111,6 +1110,10 @@ async function renderMapa() {
     const stateBorders = mapSvgEl.querySelector('#stateBorders');
     if (stateBorders) stateBorders.setAttribute('fill', 'none');
 
+    // --- Fix tierra gris: sea_island renderiza feature_2 con fill:black al 50% ---
+    const seaIsland = mapSvgEl.querySelector('#sea_island');
+    if (seaIsland) seaIsland.setAttribute('fill', 'none');
+
     // --- Inyectar icon-circle (FMG no lo exporta) ---
     const ns = 'http://www.w3.org/2000/svg';
     const defs = mapSvgEl.querySelector('defs');
@@ -1142,10 +1145,7 @@ async function renderMapa() {
       pattern.setAttribute('height', String(H));
       pattern.setAttribute('patternUnits', 'userSpaceOnUse');
       const path = document.createElementNS(ns, 'path');
-      path.setAttribute('d',
-        `M${hx},0 L${W},${s} L${W},${s*2} L${hx},${H} ` +
-        `M${hx},0 L0,${s} L0,${s*2} L${hx},${H}`
-      );
+      path.setAttribute('d', `m${hx},0 l${hx},${s} v${s} l-${hx},${s}`);
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', '#777777');
       path.setAttribute('stroke-width', '0.5');
