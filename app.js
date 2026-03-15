@@ -1054,25 +1054,20 @@ async function saveModal() {
 }
 
 // ── MAP ───────────────────────────────────────────────────────────
-let mapScale = 1, mapTX = 0, mapTY = 0;
+const VB_W0 = 1271, VB_H0 = 872;
+let vbX = 0, vbY = 0, vbW = VB_W0, vbH = VB_H0;
 let mapDragging = false, mapLastX = 0, mapLastY = 0;
 let mapSvgEl = null;
 let mapLoaded = false;
 
 const MAP_LAYER_GROUPS = [
-  { label: 'Oc\u00e9ano',    ids: ['ocean','oceanLayers','oceanPattern'], on: true  },
-  { label: 'Tierra',     ids: ['landmass','coastline'],               on: true  },
-  { label: 'Agua',       ids: ['rivers','freshwater','lakes'],        on: true  },
-  { label: 'Relieve',    ids: ['terrain'],                            on: true  },
-  { label: 'Biomas',     ids: ['biomes'],                             on: false },
-  { label: 'Ciudades',   ids: ['burgIcons','burgLabels'],             on: true  },
-  { label: 'Reinos',     ids: ['statePaths','stateBorders','statesHalo','statesBody'], on: true },
-  { label: 'Culturas',   ids: ['regions'],                            on: false },
-  { label: 'Caminos',    ids: ['roads','routes','trails','searoutes'], on: true  },
-  { label: 'Etiquetas',  ids: ['labels','addedLabels'],               on: true  },
-  { label: 'Decoraci\u00f3n', ids: ['compass','scaleBar','vignette'], on: true  },
-  { label: 'Temp.',      ids: ['temperature'],                        on: false },
-  { label: 'Zonas',      ids: ['zones','markers'],                    on: false },
+  { label: 'Biomas',      ids: ['biomes'],                  on: true  },
+  { label: 'Cuadr\u00edcula', ids: ['gridOverlay'],             on: true  },
+  { label: 'Ciudades',    ids: ['burgIcons', 'burgLabels'], on: true  },
+  { label: 'Reinos',      ids: ['regions'],                 on: false },
+  { label: 'Fronteras',   ids: ['borders'],                 on: false },
+  { label: 'Culturas',    ids: ['cults'],                   on: false },
+  { label: 'Etiquetas',   ids: ['states'],                  on: false },
 ];
 
 async function renderMapa() {
@@ -1082,12 +1077,81 @@ async function renderMapa() {
   try {
     const res = await fetch('data/map.svg?t=' + Date.now());
     const text = await res.text();
-    viewport.innerHTML = text;
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(text, 'image/svg+xml');
+    const svgEl = document.adoptNode(svgDoc.documentElement);
+    viewport.innerHTML = '';
+    viewport.appendChild(svgEl);
     mapSvgEl = viewport.querySelector('svg');
     if (!mapSvgEl) return;
-    mapSvgEl.style.transformOrigin = '0 0';
-    mapSvgEl.setAttribute('width', '100%');
-    mapSvgEl.setAttribute('height', '100%');
+    mapSvgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+    // --- Capas base: siempre visibles (no toggleables) ---
+    const landmassEl = mapSvgEl.querySelector('#landmass');
+    if (landmassEl) {
+      landmassEl.setAttribute('mask', 'url(#land)');
+      landmassEl.setAttribute('fill', '#ffffff');
+    }
+    ['oceanLayers', 'landmass', 'coastline'].forEach(id => {
+      const el = mapSvgEl.querySelector('#' + id);
+      if (el) el.style.display = '';
+    });
+
+    // labels es contenedor de burgLabels — siempre visible
+    const labelsEl = mapSvgEl.querySelector('#labels');
+    if (labelsEl) labelsEl.style.display = '';
+
+    // --- Capas siempre ocultas (heightmap / recursos externos / debug) ---
+    ['landHeights', 'heights', 'terrs', 'texture', 'fogging-cont', 'debug'].forEach(id => {
+      const el = mapSvgEl.querySelector('#' + id);
+      if (el) el.style.display = 'none';
+    });
+
+    // --- Fix fronteras: paths sin fill → default negro ---
+    const stateBorders = mapSvgEl.querySelector('#stateBorders');
+    if (stateBorders) stateBorders.setAttribute('fill', 'none');
+
+    // --- Inyectar icon-circle (FMG no lo exporta) ---
+    const ns = 'http://www.w3.org/2000/svg';
+    const defs = mapSvgEl.querySelector('defs');
+    if (defs && !mapSvgEl.querySelector('#icon-circle')) {
+      const symbol = document.createElementNS(ns, 'symbol');
+      symbol.setAttribute('id', 'icon-circle');
+      symbol.setAttribute('viewBox', '0 0 12 12');
+      const circle = document.createElementNS(ns, 'circle');
+      circle.setAttribute('cx', '6');
+      circle.setAttribute('cy', '6');
+      circle.setAttribute('r', '4');
+      symbol.appendChild(circle);
+      defs.appendChild(symbol);
+    }
+    // Asignar width/height a cada <use> en burgIcons (sin estos, renderizan enormes)
+    mapSvgEl.querySelectorAll('#burgIcons use').forEach(use => {
+      const parent = use.closest('g[font-size]');
+      const size = parent ? +parent.getAttribute('font-size') : 2;
+      use.setAttribute('width', String(size));
+      use.setAttribute('height', String(size));
+    });
+
+    // --- Inyectar patrón hexagonal (~47 columnas, medido de referencia FMG) ---
+    if (defs && !mapSvgEl.querySelector('#pattern_pointyHex')) {
+      const s = 15.6, hx = 13.5, W = 27.01, H = 46.8;
+      const pattern = document.createElementNS(ns, 'pattern');
+      pattern.setAttribute('id', 'pattern_pointyHex');
+      pattern.setAttribute('width', String(W));
+      pattern.setAttribute('height', String(H));
+      pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d',
+        `M${hx},0 L${W},${s} L${W},${s*2} L${hx},${H} ` +
+        `M${hx},0 L0,${s} L0,${s*2} L${hx},${H}`
+      );
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#777777');
+      path.setAttribute('stroke-width', '0.5');
+      pattern.appendChild(path);
+      defs.appendChild(pattern);
+    }
 
     renderMapLayerPanel();
     initMapZoomPan(viewport);
@@ -1123,13 +1187,25 @@ function toggleMapLayer(groupIdx, visible) {
   });
 }
 
+function applyMapViewBox() {
+  if (mapSvgEl) mapSvgEl.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
+}
+
 function initMapZoomPan(viewport) {
-  // Zoom con rueda del mouse
+  // Zoom con rueda — centrado en la posición del cursor
   viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    mapScale = Math.max(0.3, Math.min(12, mapScale * factor));
-    applyMapTransform();
+    const factor = e.deltaY < 0 ? 0.85 : 1.18;
+    const rect = viewport.getBoundingClientRect();
+    const ratioX = (e.clientX - rect.left)  / rect.width;
+    const ratioY = (e.clientY - rect.top)   / rect.height;
+    const svgCX = vbX + ratioX * vbW;
+    const svgCY = vbY + ratioY * vbH;
+    vbW = Math.max(60, Math.min(VB_W0 * 3, vbW * factor));
+    vbH = vbW * (VB_H0 / VB_W0);
+    vbX = svgCX - ratioX * vbW;
+    vbY = svgCY - ratioY * vbH;
+    applyMapViewBox();
   }, { passive: false });
 
   // Drag con mouse
@@ -1141,42 +1217,43 @@ function initMapZoomPan(viewport) {
   });
   window.addEventListener('mousemove', (e) => {
     if (!mapDragging) return;
-    mapTX += (e.clientX - mapLastX) / mapScale;
-    mapTY += (e.clientY - mapLastY) / mapScale;
+    const rect = viewport.getBoundingClientRect();
+    vbX -= (e.clientX - mapLastX) / rect.width  * vbW;
+    vbY -= (e.clientY - mapLastY) / rect.height * vbH;
     mapLastX = e.clientX;
     mapLastY = e.clientY;
-    applyMapTransform();
+    applyMapViewBox();
   });
   window.addEventListener('mouseup', () => { mapDragging = false; });
 
   // Touch básico
-  let touchStartX = 0, touchStartY = 0;
+  let t0x = 0, t0y = 0;
   viewport.addEventListener('touchstart', (e) => {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
+    t0x = e.touches[0].clientX; t0y = e.touches[0].clientY;
   }, { passive: true });
   viewport.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    mapTX += (e.touches[0].clientX - touchStartX) / mapScale;
-    mapTY += (e.touches[0].clientY - touchStartY) / mapScale;
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    applyMapTransform();
+    const rect = viewport.getBoundingClientRect();
+    vbX -= (e.touches[0].clientX - t0x) / rect.width  * vbW;
+    vbY -= (e.touches[0].clientY - t0y) / rect.height * vbH;
+    t0x = e.touches[0].clientX; t0y = e.touches[0].clientY;
+    applyMapViewBox();
   }, { passive: false });
 }
 
-function applyMapTransform() {
-  if (mapSvgEl) mapSvgEl.style.transform = `scale(${mapScale}) translate(${mapTX}px, ${mapTY}px)`;
-}
-
 function mapZoom(factor) {
-  mapScale = Math.max(0.3, Math.min(12, mapScale * factor));
-  applyMapTransform();
+  const cx = vbX + vbW / 2;
+  const cy = vbY + vbH / 2;
+  vbW = Math.max(60, Math.min(VB_W0 * 3, vbW * factor));
+  vbH = vbW * (VB_H0 / VB_W0);
+  vbX = cx - vbW / 2;
+  vbY = cy - vbH / 2;
+  applyMapViewBox();
 }
 
 function mapZoomReset() {
-  mapScale = 1; mapTX = 0; mapTY = 0;
-  applyMapTransform();
+  vbX = 0; vbY = 0; vbW = VB_W0; vbH = VB_H0;
+  applyMapViewBox();
 }
 
 function initMapCityLinks() {

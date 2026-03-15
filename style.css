@@ -237,7 +237,7 @@ body {
 /* ============================================================
    APP LAYOUT
    ============================================================ */
-#app { display: none; flex-direction: column; min-height: 100vh; }
+#app { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
 #app.visible { display: flex; }
 
 body.bg-app {
@@ -859,9 +859,6 @@ body.bg-app {
 .section-mapa {
   padding: 0 !important;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
 }
 
 .map-wrapper {
@@ -875,16 +872,20 @@ body.bg-app {
   flex: 1;
   overflow: hidden;
   cursor: grab;
-  background: #0d1e2e;
+  background: #466eab;
   user-select: none;
   -webkit-user-select: none;
+  position: relative;
 }
 
 .map-viewport:active { cursor: grabbing; }
 
 .map-viewport svg {
   display: block;
-  transform-origin: 0 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* Layer panel */
