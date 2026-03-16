@@ -38,6 +38,14 @@ function getCheckbox(prop) {
   return prop?.checkbox ?? false;
 }
 
+function getMultiSelect(prop) {
+  return prop?.multi_select?.map(s => s.name) || [];
+}
+
+function getDate(prop) {
+  return prop?.date?.start || '';
+}
+
 function getRelation(prop) {
   if (!prop?.relation?.length) return null;
   return prop.relation.map(r => r.id);
@@ -197,24 +205,27 @@ async function transformQuest(page, token) {
 
 async function transformNotaDm(page, token) {
   const p = page.properties;
+  const quests = await resolveRelationMulti(p['Quests'], token);
   return {
     notion_id: page.id,
-    nombre: getText(p['Name']) || getText(p['Nombre']),
-    fecha: p['Fecha']?.date?.start || '',
+    nombre: getText(p['Name']),
+    fecha: getDate(p['Fecha']),
+    jugadores_presentes: getMultiSelect(p['Jugadores presentes']),
+    quests,
     resumen: getText(p['Resumen']),
-    session_prep: getText(p['Session Prep']) || getText(p['Preparación']),
   };
 }
 
 async function transformNotaJugador(page, token) {
   const p = page.properties;
+  const items = await resolveRelationMulti(p['Item'], token);
   return {
     notion_id: page.id,
-    nombre: getText(p['Name']) || getText(p['Nombre']),
-    fecha: p['Fecha']?.date?.start || '',
-    jugador: getSelect(p['Jugador']),
+    nombre: getText(p['Name']),
+    fecha: getDate(p['Fecha']),
+    jugador: getMultiSelect(p['Jugador']),
     resumen: getText(p['Resumen']),
-    contenido: getText(p['Contenido']),
+    items,
   };
 }
 
@@ -378,6 +389,51 @@ async function updatePage(pageId, properties, token) {
   return res.json();
 }
 
+// --- Page Content (blocks → HTML) ---
+
+function blocksToHtml(blocks) {
+  let html = '';
+  let inList = false;
+  for (const block of blocks) {
+    const text = block[block.type]?.rich_text?.map(t => t.plain_text).join('') || '';
+    if (block.type !== 'bulleted_list_item' && block.type !== 'numbered_list_item' && inList) {
+      html += '</ul>'; inList = false;
+    }
+    switch (block.type) {
+      case 'heading_1': html += `<h2>${text}</h2>`; break;
+      case 'heading_2': html += `<h3>${text}</h3>`; break;
+      case 'heading_3': html += `<h4>${text}</h4>`; break;
+      case 'paragraph': if (text) html += `<p>${text}</p>`; break;
+      case 'bulleted_list_item':
+      case 'numbered_list_item':
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${text}</li>`;
+        break;
+      case 'callout': html += `<blockquote>${text}</blockquote>`; break;
+      case 'divider': html += '<hr>'; break;
+      default: if (text) html += `<p>${text}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+async function getPageContent(pageId, token) {
+  const blocks = [];
+  let cursor;
+  do {
+    const url = `${NOTION_API}/blocks/${pageId}/children?page_size=100${cursor ? '&start_cursor=' + cursor : ''}`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Notion-Version': NOTION_VERSION },
+    });
+    if (!res.ok) throw new Error(`Blocks error ${res.status}`);
+    const data = await res.json();
+    blocks.push(...data.results);
+    cursor = data.has_more ? data.next_cursor : null;
+  } while (cursor);
+  return blocksToHtml(blocks);
+}
+
 // --- Query Notion Database ---
 
 async function queryDatabase(dbId, token) {
@@ -436,6 +492,22 @@ export default {
     const pathParts = url.pathname.replace(/^\/api\//, '').replace(/\/$/, '').split('/');
     const entity = pathParts[0];
     const pageId = pathParts[1] || null;
+
+    // Endpoint especial: /api/content/{pageId} — obtener cuerpo de una página
+    if (entity === 'content' && pageId && request.method === 'GET') {
+      try {
+        const token = env.NOTION_TOKEN;
+        if (!token) throw new Error('NOTION_TOKEN not configured');
+        const html = await getPageContent(pageId, token);
+        return new Response(JSON.stringify({ html }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     if (!DB_MAP[entity]) {
       return new Response(JSON.stringify({

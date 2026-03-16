@@ -263,6 +263,23 @@ function openDetail(section, data) {
   `;
 
   document.getElementById('modal-overlay').classList.add('open');
+
+  // Cargar contenido de página bajo demanda para notas
+  if (data.notion_id && CONFIG.WORKER_URL) {
+    const targetId = section === 'notas_dm' ? 'session-prep-content' : section === 'notas_jugadores' ? 'nota-page-content' : null;
+    if (targetId && (section !== 'notas_dm' || isDM())) {
+      fetch(`${CONFIG.WORKER_URL}/api/content/${data.notion_id}`)
+        .then(r => r.json())
+        .then(res => {
+          const el = document.getElementById(targetId);
+          if (el) el.innerHTML = res.html || '<em>Sin contenido</em>';
+        })
+        .catch(() => {
+          const el = document.getElementById(targetId);
+          if (el) el.innerHTML = '<em>Error al cargar</em>';
+        });
+    }
+  }
 }
 
 function switchToEdit() {
@@ -378,22 +395,26 @@ function buildDetailHTML(section, data) {
     }
     case 'notas_dm': {
       const n = data;
-      const jugadores = n.jugadores || [];
+      const jugadores = n.jugadores_presentes || n.jugadores || [];
+      const quests = n.quests || [];
       return [
         n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
         jugadores.length ? row('Jugadores', jugadores.map(j => `<span class="player-chip">${escapeHtml(typeof j === 'string' ? j : j.nombre)}</span>`).join(' ')) : '',
+        quests.length ? row('Quests', quests.map(q => relChip('quests', q.notion_id, q.nombre)).join(' ')) : '',
         textBlock('Resumen', n.resumen),
-        (isDM() && n.session_prep) ? `<div class="detail-section detail-section-prep"><div class="detail-label-prep">&#9876; Session Prep</div><div class="detail-text detail-text-prep">${escapeHtml(n.session_prep).replace(/\n/g,'<br>')}</div></div>` : '',
+        isDM() ? `<div class="detail-section detail-section-prep" id="session-prep-container"><div class="detail-label-prep">&#9876; Session Prep</div><div class="detail-text detail-text-prep" id="session-prep-content"><em>Cargando...</em></div></div>` : '',
       ].join('');
     }
     case 'notas_jugadores': {
       const n = data;
-      const jugador = n.jugador ? (typeof n.jugador === 'object' ? n.jugador.nombre : n.jugador) : null;
+      const jugador = n.jugador || [];
+      const items = n.items || [];
       return [
         n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
-        jugador ? row('Jugador', escapeHtml(jugador)) : '',
+        jugador.length ? row('Jugador', jugador.map(j => `<span class="player-chip">${escapeHtml(typeof j === 'string' ? j : j.nombre)}</span>`).join(' ')) : '',
+        items.length ? row('Items', items.map(i => relChip('items', i.notion_id, i.nombre)).join(' ')) : '',
         textBlock('Resumen', n.resumen),
-        n.contenido ? `<div class="detail-section"><div class="detail-label">Notas de sesi\u00f3n</div><div class="detail-text">${escapeHtml(n.contenido).replace(/\n/g,'<br>')}</div></div>` : '',
+        `<div class="detail-section" id="nota-content-container"><div class="detail-label">Contenido</div><div class="detail-text" id="nota-page-content"><em>Cargando...</em></div></div>`,
       ].join('');
     }
     default:
