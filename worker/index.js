@@ -56,50 +56,47 @@ function getRelationSingle(prop) {
   return ids?.[0] || null;
 }
 
-// --- Resolución de relaciones (obtener nombre de página referenciada) ---
+// --- Resolución de relaciones via cache (evita rate limiting) ---
 
-async function resolvePageTitle(pageId, token) {
-  try {
-    const res = await fetch(`${NOTION_API}/pages/${pageId}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Notion-Version': NOTION_VERSION,
-      },
-    });
-    if (!res.ok) return null;
-    const page = await res.json();
-    // Buscar la propiedad title
-    for (const [, prop] of Object.entries(page.properties)) {
-      if (prop.type === 'title') {
-        return prop.title?.map(t => t.plain_text).join('') || '';
+let nameCache = {};
+
+async function buildNameCache(token) {
+  nameCache = {};
+  const dbsToCache = ['ciudades', 'npcs', 'establecimientos', 'items', 'quests', 'players', 'lugares', 'notas_dm', 'notas_jugadores'];
+  await Promise.all(dbsToCache.map(async (entity) => {
+    try {
+      const pages = await queryDatabase(DB_MAP[entity], token);
+      for (const page of pages) {
+        for (const [, prop] of Object.entries(page.properties)) {
+          if (prop.type === 'title') {
+            nameCache[page.id] = prop.title?.map(t => t.plain_text).join('') || '';
+            break;
+          }
+        }
       }
-    }
-    return '';
-  } catch { return null; }
+    } catch { /* skip failed DB */ }
+  }));
 }
 
-async function resolveRelation(prop, token) {
+function resolveRelationCached(prop) {
   const id = getRelationSingle(prop);
   if (!id) return null;
-  const nombre = await resolvePageTitle(id, token);
-  return nombre !== null ? { notion_id: id, nombre } : null;
+  const nombre = nameCache[id];
+  return nombre !== undefined ? { notion_id: id, nombre } : null;
 }
 
-async function resolveRelationMulti(prop, token) {
+function resolveRelationMultiCached(prop) {
   const ids = getRelation(prop);
   if (!ids?.length) return [];
-  const results = await Promise.all(
-    ids.map(async (id) => {
-      const nombre = await resolvePageTitle(id, token);
-      return nombre !== null ? { notion_id: id, nombre } : null;
-    })
-  );
-  return results.filter(Boolean);
+  return ids.map(id => {
+    const nombre = nameCache[id];
+    return nombre !== undefined ? { notion_id: id, nombre } : null;
+  }).filter(Boolean);
 }
 
 // --- Transformadores por entidad ---
 
-async function transformCiudad(page, token) {
+function transformCiudad(page) {
   const p = page.properties;
   return {
     notion_id: page.id,
@@ -115,12 +112,8 @@ async function transformCiudad(page, token) {
   };
 }
 
-async function transformNpc(page, token) {
+function transformNpc(page) {
   const p = page.properties;
-  const [ciudad, establecimiento] = await Promise.all([
-    resolveRelation(p['Ciudad'], token),
-    resolveRelation(p['Establecimiento'], token),
-  ]);
   return {
     notion_id: page.id,
     nombre: getText(p['Name']),
@@ -128,35 +121,33 @@ async function transformNpc(page, token) {
     tipo_npc: getSelect(p['Tipo de NPC']),
     estado: getSelect(p['Estado']),
     rol: getSelect(p['Rol']),
-    ciudad: ciudad || { notion_id: '', nombre: '' },
-    establecimiento: establecimiento || { notion_id: '', nombre: '' },
+    ciudad: resolveRelationCached(p['Ciudad']) || { notion_id: '', nombre: '' },
+    establecimiento: resolveRelationCached(p['Establecimiento']) || { notion_id: '', nombre: '' },
     descripcion: getText(p['Descripción']),
+    items_magicos: resolveRelationMultiCached(p['Items Mágicos']),
+    lugares: resolveRelationMultiCached(p['Lugares']),
+    quests: resolveRelationMultiCached(p['Quests']),
     conocido_jugadores: getCheckbox(p['Conocido por Jugadores']),
     creado_por_jugador: getCheckbox(p['Creado por Jugador?']),
   };
 }
 
-async function transformEstablecimiento(page, token) {
+function transformEstablecimiento(page) {
   const p = page.properties;
-  const [ciudad, dueno] = await Promise.all([
-    resolveRelation(p['Ciudad'], token),
-    resolveRelation(p['Dueño'], token),
-  ]);
   return {
     notion_id: page.id,
     nombre: getText(p['Nombre Establecimiento ']),
     tipo: getSelect(p['Tipo']),
-    ciudad: ciudad || { notion_id: '', nombre: '' },
-    dueno: dueno || { notion_id: '', nombre: '' },
+    ciudad: resolveRelationCached(p['Ciudad']) || { notion_id: '', nombre: '' },
+    dueno: resolveRelationCached(p['Dueño']) || { notion_id: '', nombre: '' },
     descripcion: getText(p['Descripcion']),
     conocido_jugadores: getCheckbox(p['Conocido por Jugadores?']),
     creado_por_jugador: getCheckbox(p['Creado por Jugador?']),
   };
 }
 
-async function transformPlayer(page, token) {
+function transformPlayer(page) {
   const p = page.properties;
-  const items = await resolveRelationMulti(p['Items Mágicos'], token);
   return {
     notion_id: page.id,
     nombre: getText(p['Name']),
@@ -171,26 +162,27 @@ async function transformPlayer(page, token) {
     hp_maximo: getNumber(p['HP Máximo']),
     descripcion: getText(p['Descripción']),
     rol: getSelect(p['Rol']),
-    items_magicos: items,
+    items_magicos: resolveRelationMultiCached(p['Items Mágicos']),
   };
 }
 
-async function transformItem(page, token) {
+function transformItem(page) {
   const p = page.properties;
-  const personaje = await resolveRelation(p['Personaje'], token);
   return {
     notion_id: page.id,
     nombre: getText(p['Name']),
     tipo: getSelect(p['Tipo']),
     rareza: getSelect(p['Rareza']),
-    personaje: personaje || { notion_id: '', nombre: '' },
+    personaje: resolveRelationCached(p['Personaje']) || { notion_id: '', nombre: '' },
+    npc_portador: resolveRelationCached(p['NPC Portador']) || { notion_id: '', nombre: '' },
     requiere_sintonizacion: getCheckbox(p['Requiere attunement?']),
     fuente: getText(p['Fuente']),
     descripcion: getText(p['Descripción']),
+    conocido_jugadores: getCheckbox(p['Conocido por Jugadores?']),
   };
 }
 
-async function transformQuest(page, token) {
+function transformQuest(page) {
   const p = page.properties;
   return {
     notion_id: page.id,
@@ -198,46 +190,54 @@ async function transformQuest(page, token) {
     estado: getSelect(p['Estado']),
     resumen: getText(p['Resumen']),
     recompensa_gp: getText(p['Recompensa (GP)']),
-    visible_jugadores: getCheckbox(p['Visible por jugadores?']),
-    npcs_importantes: getText(p['NPCs importantes']),
+    conocido_jugadores: getCheckbox(p['Conocido por Jugadores?']),
+    quest_npcs: resolveRelationMultiCached(p['Quest NPCs']),
+    lugares: resolveRelationMultiCached(p['Lugares']),
+    notas_dm: resolveRelationMultiCached(p['Notas DM']),
+    ciudades: resolveRelationMultiCached(p['Ciudades']),
+    establecimientos: resolveRelationMultiCached(p['Establecimientos']),
   };
 }
 
-async function transformNotaDm(page, token) {
+function transformNotaDm(page) {
   const p = page.properties;
-  const quests = await resolveRelationMulti(p['Quests'], token);
   return {
     notion_id: page.id,
     nombre: getText(p['Name']),
     fecha: getDate(p['Fecha']),
     jugadores_presentes: getMultiSelect(p['Jugadores presentes']),
-    quests,
+    quests: resolveRelationMultiCached(p['Quests']),
     resumen: getText(p['Resumen']),
   };
 }
 
-async function transformNotaJugador(page, token) {
+function transformNotaJugador(page) {
   const p = page.properties;
-  const items = await resolveRelationMulti(p['Item'], token);
   return {
     notion_id: page.id,
     nombre: getText(p['Name']),
     fecha: getDate(p['Fecha']),
     jugador: getMultiSelect(p['Jugador']),
     resumen: getText(p['Resumen']),
-    items,
+    items: resolveRelationMultiCached(p['Item']),
   };
 }
 
-async function transformLugar(page, token) {
+function transformLugar(page) {
   const p = page.properties;
   return {
     notion_id: page.id,
-    nombre: getText(p['Name']) || getText(p['Nombre']),
+    nombre: getText(p['Name']),
     tipo: getSelect(p['Tipo']),
-    region: getText(p['Región']) || getText(p['Region']),
-    estado_exploracion: getSelect(p['Estado Exploración']) || getText(p['estado_exploracion']),
-    descripcion: getText(p['Descripción']) || getText(p['Descripcion']),
+    region: getSelect(p['Region']),
+    estado_exploracion: getSelect(p['Estado']),
+    descripcion: getText(p['Descripción']),
+    ciudad: resolveRelationCached(p['Ciudad']) || { notion_id: '', nombre: '' },
+    npcs: resolveRelationMultiCached(p['NPCs Relevantes']),
+    items_magicos: resolveRelationMultiCached(p['Items Mágicos']),
+    quests: resolveRelationMultiCached(p['Quests']),
+    conocido_jugadores: getCheckbox(p['Conocido por Jugadores?']),
+    creado_por_jugador: getCheckbox(p['Creado por Jugador?']),
   };
 }
 
@@ -298,6 +298,9 @@ const WRITE_MAP = {
     'Ciudad': toRelation(d.ciudad),
     'Establecimiento': toRelation(d.establecimiento),
     'Descripción': toRichText(d.descripcion),
+    'Items Mágicos': toRelation(d.items_magicos),
+    'Lugares': toRelation(d.lugares),
+    'Quests': toRelation(d.quests),
     'Conocido por Jugadores': toCheckbox(d.conocido_jugadores),
     'Creado por Jugador?': toCheckbox(d.creado_por_jugador),
   }),
@@ -333,14 +336,18 @@ const WRITE_MAP = {
     'Requiere attunement?': toCheckbox(d.requiere_sintonizacion),
     'Fuente': toRichText(d.fuente),
     'Descripción': toRichText(d.descripcion),
+    'Conocido por Jugadores?': toCheckbox(d.conocido_jugadores),
   }),
   quests: (d) => ({
     'Name': toTitle(d.nombre),
     'Estado': toSelect(d.estado),
     'Resumen': toRichText(d.resumen),
     'Recompensa (GP)': toRichText(d.recompensa_gp),
-    'Visible por jugadores?': toCheckbox(d.visible_jugadores),
-    'NPCs importantes': toRichText(d.npcs_importantes),
+    'Conocido por Jugadores?': toCheckbox(d.conocido_jugadores),
+    'Quest NPCs': toRelation(d.quest_npcs),
+    'Lugares': toRelation(d.lugares),
+    'Ciudades': toRelation(d.ciudades),
+    'Establecimientos': toRelation(d.establecimientos),
   }),
   notas_dm: (d) => ({
     'Name': toTitle(d.nombre),
@@ -352,6 +359,16 @@ const WRITE_MAP = {
   }),
   lugares: (d) => ({
     'Name': toTitle(d.nombre),
+    'Tipo': toSelect(d.tipo),
+    'Region': toSelect(d.region),
+    'Estado': toSelect(d.estado_exploracion),
+    'Descripción': toRichText(d.descripcion),
+    'Ciudad': toRelation(d.ciudad),
+    'NPCs Relevantes': toRelation(d.npcs),
+    'Items Mágicos': toRelation(d.items_magicos),
+    'Quests': toRelation(d.quests),
+    'Conocido por Jugadores?': toCheckbox(d.conocido_jugadores),
+    'Creado por Jugador?': toCheckbox(d.creado_por_jugador),
   }),
 };
 
@@ -477,7 +494,7 @@ export default {
     // CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': matchedOrigin,
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Max-Age': '86400',
     };
@@ -526,9 +543,10 @@ export default {
 
       // GET: Listar todas las páginas
       if (request.method === 'GET') {
+        await buildNameCache(token);
         const pages = await queryDatabase(dbId, token);
         const transformer = TRANSFORMERS[entity];
-        const results = await Promise.all(pages.map(p => transformer(p, token)));
+        const results = pages.map(p => transformer(p));
         return new Response(JSON.stringify(results, null, 2), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=30' },
         });
@@ -556,6 +574,27 @@ export default {
         const properties = writeMap(data);
         await updatePage(pageId, properties, token);
         return new Response(JSON.stringify({ notion_id: pageId, success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // DELETE: Archivar página (soft delete)
+      if (request.method === 'DELETE') {
+        if (!pageId) throw new Error('DELETE requires /{entity}/{notion_id}');
+        const res = await fetch(`${NOTION_API}/pages/${pageId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Notion-Version': NOTION_VERSION,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ archived: true }),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`Notion archive error ${res.status}: ${err}`);
+        }
+        return new Response(JSON.stringify({ notion_id: pageId, deleted: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

@@ -5,6 +5,7 @@
 
 // ── DATA STORE ────────────────────────────────────────────
 const DATA = {};
+let MAP_MARKERS = {}; // {notion_id: {x, y}}
 let currentModalSection = null;
 let currentModalData = null;
 let currentModalMode = null; // 'detail' | 'edit'
@@ -65,6 +66,12 @@ async function loadData() {
         DATA[f] = await res.json();
       }));
       console.log('✓ Datos cargados desde Notion');
+      // Marcadores: localStorage primero, luego JSON remoto como fallback
+      try {
+        const stored = localStorage.getItem('map_markers');
+        if (stored) { MAP_MARKERS = JSON.parse(stored); }
+        else { const mr = await fetch(`data/markers.json?t=${Date.now()}`); MAP_MARKERS = await mr.json(); }
+      } catch { MAP_MARKERS = {}; }
       return;
     } catch(e) {
       console.warn('⚠ Notion falló, usando JSON locales:', e.message);
@@ -81,6 +88,13 @@ async function loadData() {
     }
   }));
   console.log('✓ Datos cargados desde JSON locales');
+
+  // Marcadores: localStorage primero, luego JSON local como fallback
+  try {
+    const stored = localStorage.getItem('map_markers');
+    if (stored) { MAP_MARKERS = JSON.parse(stored); }
+    else { const res = await fetch(`data/markers.json?t=${Date.now()}`); MAP_MARKERS = await res.json(); }
+  } catch { MAP_MARKERS = {}; }
 }
 
 // ── TAB SWITCHING ───────────────────────────────────────────────
@@ -106,12 +120,49 @@ function renderAll() {
   renderNPCs();
   renderItems();
   renderNotas();
+  if (mapLoaded) renderMapMarkers();
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────
 function val(v, fallback='—') {
   if (v === null || v === undefined || v === '') return fallback;
   return v;
+}
+
+const EYE_OPEN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg>';
+const EYE_CLOSED = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 7c2.8 0 5 2.2 5 5 0 .7-.1 1.3-.4 1.9l2.9 2.9c1.5-1.3 2.7-3 3.4-4.8-1.7-4.4-6-7.5-11-7.5-1.4 0-2.7.3-4 .7l2.2 2.2c.6-.3 1.2-.4 1.9-.4zM2 4.3l2.3 2.3.4.4C3.1 8.3 1.9 10 1.1 12c1.7 4.4 6 7.5 11 7.5 1.5 0 3-.3 4.4-.8l.4.4 3 3 1.3-1.3L3.3 3 2 4.3zm5.5 5.5l1.6 1.6c0 .2-.1.4-.1.6 0 1.7 1.3 3 3 3 .2 0 .4 0 .6-.1l1.6 1.6c-.7.3-1.4.5-2.2.5-2.8 0-5-2.2-5-5 0-.8.2-1.5.5-2.2z"/></svg>';
+
+function visibilityToggleHtml(entity, notionId, isVisible) {
+  if (!isDM()) return '';
+  return `<span class="visibility-toggle ${isVisible ? 'is-visible' : ''}" onclick="event.stopPropagation(); toggleVisibility('${entity}', '${notionId}', this)" title="${isVisible ? 'Visible para jugadores' : 'Oculto para jugadores'}">${isVisible ? EYE_OPEN : EYE_CLOSED}</span>`;
+}
+
+async function toggleVisibility(entity, notionId, iconEl) {
+  const dataKey = entity;
+  const arr = DATA[dataKey] || [];
+  const item = arr.find(x => x.notion_id === notionId);
+  if (!item) return;
+
+  // Determinar el campo correcto
+  const field = entity === 'ciudades' ? 'conocida_jugadores' : 'conocido_jugadores';
+  const newVal = !item[field];
+  item[field] = newVal;
+
+  // Actualizar icono inmediatamente
+  iconEl.innerHTML = newVal ? EYE_OPEN : EYE_CLOSED;
+  iconEl.classList.toggle('is-visible', newVal);
+  iconEl.title = newVal ? 'Visible para jugadores' : 'Oculto para jugadores';
+
+  // Persistir en Notion
+  if (CONFIG.USE_NOTION && CONFIG.WORKER_URL) {
+    try {
+      await fetch(`${CONFIG.WORKER_URL}/api/${dataKey}/${notionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item),
+      });
+    } catch(e) { console.warn('Toggle visibility save failed:', e); }
+  }
 }
 
 function escapeHtml(str) {
@@ -177,7 +228,7 @@ function relChip(tab, notionId, nombre, onCard = false) {
 }
 
 function showPreview(tab, notionId, event) {
-  const arrMap = { npcs: DATA.npcs, ciudades: DATA.ciudades, establecimientos: DATA.establecimientos, personajes: DATA.players, items: DATA.items, quests: DATA.quests };
+  const arrMap = { npcs: DATA.npcs, ciudades: DATA.ciudades, establecimientos: DATA.establecimientos, personajes: DATA.players, items: DATA.items, quests: DATA.quests, lugares: DATA.lugares, notas_dm: DATA.notas_dm };
   const arr = arrMap[tab] || [];
   const rec = arr.find(x => x.notion_id === notionId);
   if (!rec) return;
@@ -257,7 +308,9 @@ function openDetail(section, data) {
   body.classList.add('is-detail');
 
   const footer = document.getElementById('modal-footer');
+  const canDelete = isDM() && section === 'lugares' && data.notion_id;
   footer.innerHTML = `
+    ${canDelete ? `<button class="btn btn-danger" onclick="deleteLugar('${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
     <button class="btn" onclick="closeModal()">Cerrar</button>
     ${(isDM() || data.creado_por_jugador) ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
   `;
@@ -295,6 +348,7 @@ function switchToEdit() {
   const data = currentModalData;
 
   body.innerHTML = schema.map(field => formFieldHTML(field, data)).join('');
+  initSearchableSelects(body);
 
   const footer = document.getElementById('modal-footer');
   footer.innerHTML = `
@@ -323,8 +377,9 @@ function buildDetailHTML(section, data) {
         row('Ciudad', n.ciudad ? relChip('ciudades', n.ciudad.notion_id, n.ciudad.nombre) : ''),
         row('Establecimiento', n.establecimiento ? relChip('establecimientos', n.establecimiento.notion_id, n.establecimiento.nombre) : ''),
         textBlock('Descripci\u00f3n', n.descripcion),
-        (isDM() && n.quests_relacionadas && n.quests_relacionadas.length) ? `<div class="detail-section"><div class="detail-label">Quests relacionadas</div><ul class="card-list">${n.quests_relacionadas.map(q => `<li>${relChip('quests', q.notion_id, q.nombre)}</li>`).join('')}</ul></div>` : '',
-        (isDM() && n.items_magicos && n.items_magicos.length) ? `<div class="detail-section"><div class="detail-label">Items M\u00e1gicos</div><ul class="card-list">${n.items_magicos.map(i => `<li>${relChip('items', i.notion_id, i.nombre)}</li>`).join('')}</ul></div>` : '',
+        (n.quests && n.quests.length) ? row('Quests', n.quests.map(q => relChip('quests', q.notion_id, q.nombre)).join(' ')) : '',
+        (n.items_magicos && n.items_magicos.length) ? row('Items', n.items_magicos.map(i => relChip('items', i.notion_id, i.nombre)).join(' ')) : '',
+        (n.lugares && n.lugares.length) ? row('Lugares', n.lugares.map(l => relChip('lugares', l.notion_id, l.nombre)).join(' ')) : '',
       ].join('');
     }
     case 'personajes': {
@@ -344,10 +399,20 @@ function buildDetailHTML(section, data) {
     }
     case 'quests': {
       const q = data;
+      const qNpcs = q.quest_npcs || [];
+      const qLugares = q.lugares || [];
+      const qCiudades = q.ciudades || [];
+      const qEstabs = q.establecimientos || [];
+      const qNotas = q.notas_dm || [];
       return [
         row('Estado', estadoQuestBadge(q.estado)),
         q.recompensa_gp ? row('Recompensa', `<span class="quest-recompensa">&#9830; ${escapeHtml(q.recompensa_gp)} GP</span>`) : '',
+        qNpcs.length ? row('NPCs', qNpcs.map(n => relChip('npcs', n.notion_id, n.nombre)).join(' ')) : '',
+        qLugares.length ? row('Lugares', qLugares.map(l => relChip('lugares', l.notion_id, l.nombre)).join(' ')) : '',
+        qCiudades.length ? row('Ciudades', qCiudades.map(c => relChip('ciudades', c.notion_id, c.nombre)).join(' ')) : '',
+        qEstabs.length ? row('Establecimientos', qEstabs.map(e => relChip('establecimientos', e.notion_id, e.nombre)).join(' ')) : '',
         textBlock('Resumen', q.resumen),
+        isDM() && qNotas.length ? row('Notas DM', qNotas.map(n => relChip('notas_dm', n.notion_id, n.nombre)).join(' ')) : '',
       ].join('');
     }
     case 'ciudades': {
@@ -375,10 +440,17 @@ function buildDetailHTML(section, data) {
     }
     case 'lugares': {
       const l = data;
+      const npcsL = l.npcs || [];
+      const itemsL = l.items_magicos || [];
+      const questsL = l.quests || [];
       return [
         row('Tipo', l.tipo ? `<span class="badge tipo-badge">${escapeHtml(l.tipo)}</span>` : ''),
         row('Regi\u00f3n', escapeHtml(l.region)),
         row('Exploraci\u00f3n', escapeHtml(l.estado_exploracion)),
+        row('Ciudad', l.ciudad?.nombre ? relChip('ciudades', l.ciudad.notion_id, l.ciudad.nombre) : ''),
+        npcsL.length ? row('NPCs', npcsL.map(n => relChip('npcs', n.notion_id, n.nombre)).join(' ')) : '',
+        itemsL.length ? row('Items', itemsL.map(i => relChip('items', i.notion_id, i.nombre)).join(' ')) : '',
+        questsL.length ? row('Quests', questsL.map(q => relChip('quests', q.notion_id, q.nombre)).join(' ')) : '',
         textBlock('Descripci\u00f3n', l.descripcion),
       ].join('');
     }
@@ -388,7 +460,8 @@ function buildDetailHTML(section, data) {
         row('Rareza', rarezaBadge(it.rareza)),
         row('Tipo', it.tipo ? `<span class="badge tipo-badge">${escapeHtml(it.tipo)}</span>` : ''),
         row('Attunement', it.requiere_sintonizacion ? '\u2713 S\u00ed' : 'No'),
-        row('Portador', it.personaje ? relChip('personajes', it.personaje.notion_id, it.personaje.nombre) : '<span style="color:var(--text-dim)">Sin portador</span>'),
+        row('Portador', it.personaje?.nombre ? relChip('personajes', it.personaje.notion_id, it.personaje.nombre) : '<span style="color:var(--text-dim)">Sin portador</span>'),
+        it.npc_portador?.nombre ? row('NPC Portador', relChip('npcs', it.npc_portador.notion_id, it.npc_portador.nombre)) : '',
         row('Fuente', escapeHtml(it.fuente)),
         textBlock('Descripci\u00f3n', it.descripcion),
       ].join('');
@@ -471,13 +544,14 @@ function renderPersonajes() {
 function renderQuests() {
   const grid = document.getElementById('grid-quests');
   let items = DATA.quests || [];
-  if (!isDM()) items = items.filter(q => q.visible_jugadores);
+  if (!isDM()) items = items.filter(q => q.conocido_jugadores);
   if (!items.length) { grid.innerHTML = emptyState('No hay quests visibles.'); return; }
 
   grid.innerHTML = items.map(q => {
     const gp = q.recompensa_gp ? `<span class="quest-recompensa">&#9830; ${escapeHtml(q.recompensa_gp)} GP</span>` : '';
     return `
     <div class="card" data-section="quests" data-notion-id="${q.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('quests', q.notion_id, q.conocido_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(q.nombre)}</div>
@@ -485,7 +559,10 @@ function renderQuests() {
         </div>
       </div>
       <div class="card-body">
-        ${q.resumen ? `<div class="card-desc" style="border-top:none;padding-top:0">${escapeHtml(q.resumen).substring(0,150)}${q.resumen.length > 150 ? '\u2026' : ''}</div>` : ''}
+        ${(q.quest_npcs && q.quest_npcs.length) ? `<div class="card-meta"><span class="meta-label">NPCs:</span> ${q.quest_npcs.map(n => relChip('npcs', n.notion_id, n.nombre, true)).join(' ')}</div>` : ''}
+        ${(q.lugares && q.lugares.length) ? `<div class="card-meta"><span class="meta-label">Lugares:</span> ${q.lugares.map(l => relChip('lugares', l.notion_id, l.nombre, true)).join(' ')}</div>` : ''}
+        ${(q.ciudades && q.ciudades.length) ? `<div class="card-meta"><span class="meta-label">Ciudades:</span> ${q.ciudades.map(c => relChip('ciudades', c.notion_id, c.nombre, true)).join(' ')}</div>` : ''}
+        ${q.resumen ? `<div class="card-desc">${escapeHtml(q.resumen).substring(0,150)}${q.resumen.length > 150 ? '\u2026' : ''}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -504,6 +581,7 @@ function renderCiudades() {
     const cNpcs   = (DATA.npcs || []).filter(n => n.ciudad && n.ciudad.notion_id === c.notion_id);
     return `
     <div class="card" data-section="ciudades" data-notion-id="${c.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('ciudades', c.notion_id, c.conocida_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(c.nombre)}</div>
@@ -563,6 +641,7 @@ function renderEstablecimientosGrid() {
 
   grid.innerHTML = items.map(e => `
     <div class="card" data-section="establecimientos" data-notion-id="${e.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('establecimientos', e.notion_id, e.conocido_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(e.nombre)}</div>
@@ -588,10 +667,12 @@ function renderEstablecimientos() {
 function renderLugares() {
   const grid = document.getElementById('grid-lugares');
   let items = DATA.lugares || [];
+  if (!isDM()) items = items.filter(l => l.conocido_jugadores || l.creado_por_jugador);
   if (!items.length) { grid.innerHTML = emptyState('No hay lugares registrados.'); return; }
 
   grid.innerHTML = items.map(l => `
     <div class="card" data-section="lugares" data-notion-id="${l.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('lugares', l.notion_id, l.conocido_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(l.nombre)}</div>
@@ -602,6 +683,7 @@ function renderLugares() {
         </div>
       </div>
       <div class="card-body">
+        ${l.ciudad?.nombre ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Ciudad:</span> ${escapeHtml(l.ciudad.nombre)}</span></div>` : ''}
         ${l.estado_exploracion ? `<div class="card-meta"><span class="meta-item"><span class="meta-label">Exploraci\u00f3n:</span> ${escapeHtml(l.estado_exploracion)}</span></div>` : ''}
         ${l.descripcion ? `<div class="card-desc">${escapeHtml(l.descripcion)}</div>` : ''}
       </div>
@@ -662,6 +744,7 @@ function renderNPCsGrid() {
 
   grid.innerHTML = items.map(n => `
     <div class="card" data-section="npcs" data-notion-id="${n.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('npcs', n.notion_id, n.conocido_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(n.nombre)}</div>
@@ -722,6 +805,7 @@ function renderItemsGrid() {
 
   grid.innerHTML = items.map(it => `
     <div class="card" data-section="items" data-notion-id="${it.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
+      ${visibilityToggleHtml('items', it.notion_id, it.conocido_jugadores)}
       <div class="card-header">
         <div>
           <div class="card-title">${escapeHtml(it.nombre)}</div>
@@ -857,6 +941,36 @@ async function saveToGitHub(filename, data) {
   }
 }
 
+async function deleteLugar(notionId) {
+  if (!confirm('¿Eliminar este lugar? Se archivará en Notion.')) return;
+  const spinner = document.getElementById('spinner');
+  spinner.classList.add('open');
+  try {
+    if (CONFIG.USE_NOTION && CONFIG.WORKER_URL) {
+      const res = await fetch(`${CONFIG.WORKER_URL}/api/lugares/${notionId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Error al eliminar');
+    }
+    DATA.lugares = (DATA.lugares || []).filter(l => l.notion_id !== notionId);
+    if (MAP_MARKERS[notionId]) {
+      delete MAP_MARKERS[notionId];
+      localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
+      try { await saveToGitHub('markers.json', MAP_MARKERS); } catch(e) { console.warn('markers.json save failed:', e); }
+    }
+    closeModal();
+    renderAll();
+  } catch(e) {
+    alert('Error al eliminar: ' + e.message);
+  } finally {
+    spinner.classList.remove('open');
+  }
+}
+
+async function saveMarkerPosition(notionId, x, y) {
+  MAP_MARKERS[notionId] = { x, y };
+  localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
+  try { await saveToGitHub('markers.json', MAP_MARKERS); } catch(e) { console.warn('GitHub markers sync failed:', e); }
+}
+
 // ── MODAL (Edit/Add) ─────────────────────────────────────────────────
 const FORM_SCHEMAS = {
   personajes: [
@@ -876,7 +990,12 @@ const FORM_SCHEMAS = {
     { key:'estado',   label:'Estado',  type:'select', options:['Activa','Completada','Fallida','En Pausa'] },
     { key:'recompensa_gp', label:'Recompensa GP', type:'text' },
     { key:'resumen',  label:'Resumen', type:'textarea' },
-    { key:'visible_jugadores', label:'Visible para jugadores', type:'checkbox' },
+    { key:'quest_npcs', label:'NPCs relacionados', type:'select-rel-multi', source:'npcs' },
+    { key:'lugares', label:'Lugares relacionados', type:'select-rel-multi', source:'lugares' },
+    { key:'ciudades', label:'Ciudades relacionadas', type:'select-rel-multi', source:'ciudades' },
+    { key:'establecimientos', label:'Establecimientos relacionados', type:'select-rel-multi', source:'establecimientos' },
+    { key:'notas_dm', label:'Notas DM relacionadas', type:'select-rel-multi', source:'notas_dm' },
+    { key:'conocido_jugadores', label:'Conocido por jugadores', type:'checkbox' },
   ],
   ciudades: [
     { key:'nombre',    label:'Nombre',   type:'text', required:true },
@@ -897,10 +1016,15 @@ const FORM_SCHEMAS = {
   ],
   lugares: [
     { key:'nombre',  label:'Nombre', type:'text', required:true },
-    { key:'tipo',    label:'Tipo',   type:'text' },
-    { key:'region',  label:'Regi\u00f3n', type:'text' },
-    { key:'estado_exploracion', label:'Estado Exploraci\u00f3n', type:'select', options:['','No explorado','Parcialmente explorado','Explorado'] },
+    { key:'tipo',    label:'Tipo',   type:'select', options:['','Pueblo','Aldea','Dungeon','Bosque','Ruinas','Fortaleza','Templo','Cueva','Puerto','Torre','Otro'] },
+    { key:'region',  label:'Regi\u00f3n', type:'select', options:['','Valora','Khunulba','Shimberia','Elarithva','Mythalos','Gnomalia','Khaz-Alun','Naiolonde','Mirnax','Bhiaxi','Genghis Clan','Krigh','Whitbury','Dustcairn','Selumanora','Shatrekvan'] },
+    { key:'estado_exploracion', label:'Estado Exploraci\u00f3n', type:'select', options:['','Sin explorar','Parcialmente explorado','Explorado'] },
     { key:'descripcion', label:'Descripci\u00f3n', type:'textarea' },
+    { key:'ciudad',  label:'Ciudad cercana', type:'select-rel', source:'ciudades' },
+    { key:'npcs',    label:'NPCs relacionados', type:'select-rel-multi', source:'npcs' },
+    { key:'items_magicos', label:'Items relacionados', type:'select-rel-multi', source:'items' },
+    { key:'quests',  label:'Quests relacionadas', type:'select-rel-multi', source:'quests' },
+    { key:'conocido_jugadores', label:'Conocido por jugadores', type:'checkbox' },
   ],
   npcs: [
     { key:'nombre',         label:'Nombre',   type:'text', required:true },
@@ -957,22 +1081,47 @@ function formFieldHTML(field, data) {
     return `<div class="form-group"><div class="form-check"><input type="checkbox" id="field-${field.key}" ${v ? 'checked' : ''}><label for="field-${field.key}">${field.label}</label></div></div>`;
   }
   if (field.type === 'select') {
-    const opts = field.options.map(o => `<option value="${o}" ${o === v ? 'selected' : ''}>${o || '\u2014 Ninguno \u2014'}</option>`).join('');
-    return `<div class="form-group"><label>${field.label}</label><select id="field-${field.key}">${opts}</select></div>`;
+    const items = field.options.map(o => ({ value: o, label: o || '— Ninguno —' }));
+    const selLabel = items.find(i => i.value === v)?.label || '— Ninguno —';
+    return `<div class="form-group"><label>${field.label}</label>
+      <div class="ss-wrap" data-field="${field.key}">
+        <input type="hidden" id="field-${field.key}" value="${escapeHtml(v || '')}">
+        <input type="text" class="ss-input" placeholder="Buscar..." value="${escapeHtml(selLabel !== '— Ninguno —' ? selLabel : '')}" autocomplete="off">
+        <div class="ss-dropdown">${items.map(i => `<div class="ss-option" data-value="${escapeHtml(i.value)}">${escapeHtml(i.label)}</div>`).join('')}</div>
+      </div></div>`;
   }
   if (field.type === 'select-rel') {
     let srcArr = (DATA[field.source] || []).filter(field.filter || (() => true));
-    // Jugadores solo ven entidades conocidas en los selectores
     if (!isDM()) {
       srcArr = srcArr.filter(r => r.conocida_jugadores || r.conocido_jugadores || r.creado_por_jugador);
     }
     const current = data ? data[field.key] : null;
     const currentId = current ? current.notion_id : '';
-    const opts = [
-      `<option value="">\u2014 Ninguno \u2014</option>`,
-      ...srcArr.map(r => `<option value="${r.notion_id}" ${r.notion_id === currentId ? 'selected' : ''}>${escapeHtml(r.nombre)}</option>`)
-    ].join('');
-    return `<div class="form-group"><label>${field.label}</label><select id="field-${field.key}">${opts}</select></div>`;
+    const items = [{ value: '', label: '— Ninguno —' }, ...srcArr.map(r => ({ value: r.notion_id, label: r.nombre }))];
+    const selLabel = items.find(i => i.value === currentId)?.label || '';
+    return `<div class="form-group"><label>${field.label}</label>
+      <div class="ss-wrap" data-field="${field.key}">
+        <input type="hidden" id="field-${field.key}" value="${escapeHtml(currentId)}">
+        <input type="text" class="ss-input" placeholder="Buscar..." value="${escapeHtml(selLabel !== '— Ninguno —' ? selLabel : '')}" autocomplete="off">
+        <div class="ss-dropdown">${items.map(i => `<div class="ss-option" data-value="${escapeHtml(i.value)}">${escapeHtml(i.label)}</div>`).join('')}</div>
+      </div></div>`;
+  }
+  if (field.type === 'select-rel-multi') {
+    let srcArr = (DATA[field.source] || []).filter(field.filter || (() => true));
+    if (!isDM()) {
+      srcArr = srcArr.filter(r => r.conocida_jugadores || r.conocido_jugadores || r.creado_por_jugador);
+    }
+    const currentArr = (data ? data[field.key] : null) || [];
+    const selectedIds = currentArr.map(r => r.notion_id);
+    const chips = currentArr.map(r => `<span class="ssm-chip" data-id="${r.notion_id}">${escapeHtml(r.nombre)}<span class="ssm-chip-x">&times;</span></span>`).join('');
+    const items = srcArr.map(r => `<div class="ss-option" data-value="${r.notion_id}" style="${selectedIds.includes(r.notion_id) ? 'display:none' : ''}">${escapeHtml(r.nombre)}</div>`).join('');
+    return `<div class="form-group"><label>${field.label}</label>
+      <div class="ssm-wrap" data-field="${field.key}" data-source="${field.source}">
+        <input type="hidden" id="field-${field.key}" value='${JSON.stringify(selectedIds)}'>
+        <div class="ssm-chips">${chips}</div>
+        <input type="text" class="ss-input" placeholder="Buscar..." autocomplete="off">
+        <div class="ss-dropdown">${items}</div>
+      </div></div>`;
   }
   return `<div class="form-group"><label>${field.label}${field.required ? ' *' : ''}</label><input type="${field.type || 'text'}" id="field-${field.key}" value="${escapeHtml(v !== null && v !== undefined ? String(v) : '')}"></div>`;
 }
@@ -989,6 +1138,7 @@ function openModal(section, data) {
   body.classList.remove('is-detail');
 
   body.innerHTML = schema.map(field => formFieldHTML(field, data)).join('');
+  initSearchableSelects(body);
 
   const footer = document.getElementById('modal-footer');
   footer.innerHTML = `
@@ -997,6 +1147,127 @@ function openModal(section, data) {
   `;
 
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+function initSearchableSelects(container) {
+  container.querySelectorAll('.ss-wrap').forEach(wrap => {
+    const hidden = wrap.querySelector('input[type="hidden"]');
+    const input = wrap.querySelector('.ss-input');
+    const dropdown = wrap.querySelector('.ss-dropdown');
+    const allOptions = [...dropdown.querySelectorAll('.ss-option')];
+
+    input.addEventListener('focus', () => {
+      dropdown.classList.add('open');
+      input.select();
+      filterOptions('');
+    });
+
+    input.addEventListener('input', () => {
+      filterOptions(input.value);
+    });
+
+    function filterOptions(query) {
+      const q = query.toLowerCase();
+      allOptions.forEach(opt => {
+        opt.style.display = opt.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
+
+    allOptions.forEach(opt => {
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        hidden.value = opt.dataset.value;
+        input.value = opt.dataset.value ? opt.textContent : '';
+        dropdown.classList.remove('open');
+      });
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => dropdown.classList.remove('open'), 150);
+    });
+  });
+
+  // Multi-select (ssm-wrap)
+  container.querySelectorAll('.ssm-wrap').forEach(wrap => {
+    const hidden = wrap.querySelector('input[type="hidden"]');
+    const chipsContainer = wrap.querySelector('.ssm-chips');
+    const input = wrap.querySelector('.ss-input');
+    const dropdown = wrap.querySelector('.ss-dropdown');
+    const allOptions = [...dropdown.querySelectorAll('.ss-option')];
+
+    function getIds() { try { return JSON.parse(hidden.value || '[]'); } catch { return []; } }
+    function setIds(ids) { hidden.value = JSON.stringify(ids); }
+
+    function refreshOptionVisibility() {
+      const ids = getIds();
+      allOptions.forEach(opt => {
+        opt.dataset.hidden = ids.includes(opt.dataset.value) ? '1' : '';
+      });
+      filterOpts(input.value);
+    }
+
+    function filterOpts(query) {
+      const q = query.toLowerCase();
+      allOptions.forEach(opt => {
+        const matchesSearch = opt.textContent.toLowerCase().includes(q);
+        const isSelected = opt.dataset.hidden === '1';
+        opt.style.display = (matchesSearch && !isSelected) ? '' : 'none';
+      });
+    }
+
+    function addChip(id, name) {
+      const chip = document.createElement('span');
+      chip.className = 'ssm-chip';
+      chip.dataset.id = id;
+      chip.innerHTML = `${escapeHtml(name)}<span class="ssm-chip-x">&times;</span>`;
+      chip.querySelector('.ssm-chip-x').addEventListener('click', () => {
+        chip.remove();
+        const ids = getIds().filter(i => i !== id);
+        setIds(ids);
+        refreshOptionVisibility();
+      });
+      chipsContainer.appendChild(chip);
+    }
+
+    // Wire up existing chip X buttons
+    chipsContainer.querySelectorAll('.ssm-chip').forEach(chip => {
+      chip.querySelector('.ssm-chip-x')?.addEventListener('click', () => {
+        const id = chip.dataset.id;
+        chip.remove();
+        const ids = getIds().filter(i => i !== id);
+        setIds(ids);
+        refreshOptionVisibility();
+      });
+    });
+
+    input.addEventListener('focus', () => {
+      dropdown.classList.add('open');
+      input.select();
+      filterOpts('');
+    });
+    input.addEventListener('input', () => filterOpts(input.value));
+
+    allOptions.forEach(opt => {
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const id = opt.dataset.value;
+        const name = opt.textContent;
+        if (!id) return;
+        const ids = getIds();
+        if (!ids.includes(id)) {
+          ids.push(id);
+          setIds(ids);
+          addChip(id, name);
+          refreshOptionVisibility();
+        }
+        input.value = '';
+      });
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => dropdown.classList.remove('open'), 150);
+    });
+  });
 }
 
 function closeModal() {
@@ -1025,6 +1296,13 @@ async function saveModal() {
       newData[field.key] = el.checked;
     } else if (field.type === 'number') {
       newData[field.key] = el.value === '' ? null : Number(el.value);
+    } else if (field.type === 'select-rel-multi') {
+      const ids = JSON.parse(el.value || '[]');
+      const srcArr = (DATA[field.source] || []).filter(field.filter || (() => true));
+      newData[field.key] = ids.map(id => {
+        const found = srcArr.find(r => r.notion_id === id);
+        return found ? { notion_id: found.notion_id, nombre: found.nombre } : null;
+      }).filter(Boolean);
     } else if (field.type === 'select-rel') {
       const selectedId = el.value;
       if (selectedId) {
@@ -1080,6 +1358,11 @@ async function saveModal() {
         if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status); }
         const created = await res.json();
         newData.notion_id = created.notion_id;
+        // Si creamos un Lugar desde el mapa, guardar posición del marcador
+        if (dataKey === 'lugares' && pendingMarkerCoords) {
+          try { await saveMarkerPosition(created.notion_id, pendingMarkerCoords.x, pendingMarkerCoords.y); } catch(me) { console.warn('Marker save failed:', me); }
+          pendingMarkerCoords = null;
+        }
       } else {
         const res = await fetch(`${CONFIG.WORKER_URL}/api/${dataKey}/${newData.notion_id}`, {
           method: 'PUT',
@@ -1108,13 +1391,60 @@ let mapDragging = false, mapLastX = 0, mapLastY = 0;
 let mapSvgEl = null;
 let mapLoaded = false;
 
+const MAP_LEGENDS = {
+  biomes: { title: 'Biomas', parent: 'biomes', items: [
+    {name:'Grassland',color:'#c8d68f',svgId:'biome4'},
+    {name:'Temperate deciduous forest',color:'#29bc56',svgId:'biome6'},
+    {name:'Tundra',color:'#96784b',svgId:'biome10'},
+    {name:'Taiga',color:'#4b6b32',svgId:'biome9'},
+    {name:'Temperate rainforest',color:'#409c43',svgId:'biome8'},
+    {name:'Wetland',color:'#0b9131',svgId:'biome12'},
+    {name:'Hot desert',color:'#fbe79f',svgId:'biome1'},
+    {name:'Cold desert',color:'#b5b887',svgId:'biome2'},
+    {name:'Volcano',color:'#ff5050',svgId:'biome13'},
+    {name:'Glacier',color:'#d5e7eb',svgId:'biome11'},
+  ]},
+  regions: { title: 'Reinos', parent: 'statesBody', items: [
+    {name:'Valora',color:'#1ddea4',svgId:'state1'},
+    {name:'Krigh',color:'#6d42ae',svgId:'state2'},
+    {name:'Genghis',color:'#87f557',svgId:'state3'},
+    {name:'Bhiaxi',color:'#3fff58',svgId:'state4'},
+    {name:'Mirnax',color:'#eb535b',svgId:'state5'},
+    {name:'Khunulba',color:'#f6a95c',svgId:'state6'},
+    {name:'Whitbury',color:'#1dbbce',svgId:'state7'},
+    {name:'Duskairn',color:'#e6f443',svgId:'state8'},
+    {name:'Khaz-Alun',color:'#db4ed2',svgId:'state9'},
+    {name:'Elarithva',color:'#b5ea51',svgId:'state10'},
+    {name:'Mythalos',color:'#7b3fae',svgId:'state11'},
+    {name:'Shatrekvan',color:'#20b3d4',svgId:'state12'},
+    {name:'Gnomalia',color:'#2188e4',svgId:'state13'},
+    {name:'Sellumanora',color:'#b7d035',svgId:'state14'},
+    {name:'Naiolonde',color:'#d53ea6',svgId:'state15'},
+    {name:'Shimberia',color:'#ff5c66',svgId:'state16'},
+  ]},
+  cults: { title: 'Culturas', parent: 'cults', items: [
+    {name:'Humans',color:'#dababf',svgId:'culture1'},
+    {name:'Drow',color:'#7040ab',svgId:'culture2'},
+    {name:'Elves',color:'#41ac3f',svgId:'culture3'},
+    {name:'Dwarves',color:'#f29b58',svgId:'culture4'},
+    {name:'Goblins',color:'#a7f652',svgId:'culture5'},
+    {name:'Orcs',color:'#000000',svgId:'culture6'},
+    {name:'Gnomes',color:'#415bf4',svgId:'culture7'},
+    {name:'Aasimar',color:'#969696',svgId:'culture8'},
+    {name:'Goliath',color:'#4fb8cf',svgId:'culture9'},
+    {name:'Dragonborn',color:'#f54c50',svgId:'culture10'},
+    {name:'Halflings',color:'#b03e71',svgId:'culture11'},
+  ]},
+};
+
 const MAP_LAYER_GROUPS = [
-  { label: 'Biomas',      ids: ['biomes'],                  on: true  },
+  { label: 'Biomas',      ids: ['biomes'],                  on: true,  legend: 'biomes' },
   { label: 'Cuadrícula', ids: ['gridOverlay'],              on: true  },
   { label: 'Ciudades',    ids: ['burgIcons', 'burgLabels'], on: true  },
-  { label: 'Reinos',      ids: ['regions'],                 on: false },
+  { label: 'Lugares',     ids: ['markers'],                 on: true  },
+  { label: 'Reinos',      ids: ['regions'],                 on: false, legend: 'regions' },
   { label: 'Fronteras',   ids: ['borders'],                 on: false },
-  { label: 'Culturas',    ids: ['cults'],                   on: false },
+  { label: 'Culturas',    ids: ['cults'],                   on: false, legend: 'cults' },
 ];
 
 function injectGridPattern(svgEl) {
@@ -1211,6 +1541,9 @@ async function renderMapa() {
     renderMapLayerPanel();
     initMapZoomPan(viewport);
     initMapCityLinks();
+    initMapMarkerDrop();
+    renderMapMarkers();
+    initMapToLegendHighlight();
     mapLoaded = true;
   } catch(e) {
     viewport.innerHTML = `<div style="padding:40px;color:var(--text-dim);font-family:'Cinzel',serif;text-align:center">Error al cargar el mapa: ${e.message}</div>`;
@@ -1239,6 +1572,116 @@ function toggleMapLayer(groupIdx, visible) {
   (g ? g.ids : []).forEach(id => {
     const el = mapSvgEl.querySelector('#' + id);
     if (el) el.style.display = visible ? '' : 'none';
+  });
+  renderMapLegend();
+}
+
+function renderMapLegend() {
+  let container = document.getElementById('map-legend');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'map-legend';
+    container.className = 'map-legend';
+    const wrapper = document.querySelector('.map-wrapper');
+    if (wrapper) wrapper.appendChild(container);
+  }
+  const activeLegends = MAP_LAYER_GROUPS.filter(g => g.on && g.legend && MAP_LEGENDS[g.legend]);
+  if (!activeLegends.length) { container.style.display = 'none'; return; }
+  container.style.display = '';
+  container.innerHTML = activeLegends.map(g => {
+    const leg = MAP_LEGENDS[g.legend];
+    return `<div class="map-legend-section" data-legend="${g.legend}">
+      <div class="map-legend-title">${leg.title}</div>
+      ${leg.items.map(it => `<div class="map-legend-item" data-svg-id="${it.svgId}" data-legend="${g.legend}"><span class="map-legend-swatch" style="background:${it.color}"></span>${it.name}</div>`).join('')}
+    </div>`;
+  }).join('');
+  initLegendHighlight();
+}
+
+// Leyenda → Mapa: hover en item de leyenda resalta la zona SVG
+function initLegendHighlight() {
+  const container = document.getElementById('map-legend');
+  if (!container || !mapSvgEl) return;
+
+  container.querySelectorAll('.map-legend-item').forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      const svgId = item.dataset.svgId;
+      const legendKey = item.dataset.legend;
+      const leg = MAP_LEGENDS[legendKey];
+      if (!leg) return;
+      // Dim todos los hermanos, highlight el actual
+      const parent = mapSvgEl.querySelector('#' + leg.parent);
+      if (parent) {
+        parent.querySelectorAll(':scope > *').forEach(child => {
+          child.classList.add('map-dim');
+        });
+      }
+      const target = mapSvgEl.querySelector('#' + svgId);
+      if (target) { target.classList.remove('map-dim'); target.classList.add('map-highlight'); }
+    });
+
+    item.addEventListener('mouseleave', () => {
+      const legendKey = item.dataset.legend;
+      const leg = MAP_LEGENDS[legendKey];
+      if (!leg) return;
+      const parent = mapSvgEl.querySelector('#' + leg.parent);
+      if (parent) {
+        parent.querySelectorAll(':scope > *').forEach(child => {
+          child.classList.remove('map-dim', 'map-highlight');
+        });
+      }
+    });
+  });
+}
+
+// Mapa → Leyenda: hover en el mapa resalta el item de leyenda
+function initMapToLegendHighlight() {
+  if (!mapSvgEl) return;
+  let lastHighlighted = null;
+  let throttleTimer = null;
+
+  mapSvgEl.addEventListener('mousemove', (e) => {
+    if (throttleTimer) return;
+    throttleTimer = setTimeout(() => { throttleTimer = null; }, 50);
+
+    const elements = document.elementsFromPoint(e.clientX, e.clientY);
+    let found = null;
+
+    for (const el of elements) {
+      const id = el.id || '';
+      if (/^(biome|state|culture)\d+$/.test(id)) {
+        found = id;
+        break;
+      }
+      // Check parent for nested paths
+      if (el.parentElement && /^(biome|state|culture)\d+$/.test(el.parentElement.id || '')) {
+        found = el.parentElement.id;
+        break;
+      }
+    }
+
+    if (found === lastHighlighted) return;
+
+    // Clear previous
+    if (lastHighlighted) {
+      const prev = document.querySelector(`.map-legend-item[data-svg-id="${lastHighlighted}"]`);
+      if (prev) prev.classList.remove('map-legend-item-active');
+    }
+
+    lastHighlighted = found;
+
+    if (found) {
+      const item = document.querySelector(`.map-legend-item[data-svg-id="${found}"]`);
+      if (item) item.classList.add('map-legend-item-active');
+    }
+  });
+
+  mapSvgEl.addEventListener('mouseleave', () => {
+    if (lastHighlighted) {
+      const prev = document.querySelector(`.map-legend-item[data-svg-id="${lastHighlighted}"]`);
+      if (prev) prev.classList.remove('map-legend-item-active');
+      lastHighlighted = null;
+    }
   });
 }
 
@@ -1390,6 +1833,170 @@ function initMapCityLinks() {
     title.textContent = ciudad.nombre;
     t.appendChild(title);
   });
+}
+
+// ── MAP MARKERS ───────────────────────────────────────────────────
+
+// Iconos SVG por tipo (viewBox 0 0 12 12, paths centrados)
+const MARKER_ICONS = {
+  'Dungeon':    'M2 10V5l4-3 4 3v5H8V7H4v3zm3-5h2V4L6 3.2 5 4z', // portal con arco
+  'Ruinas':     'M3 10V5h1v5h1V3h2v7h1V5h1v5h1V4L6 2 2 4v6z',      // columnas rotas
+  'Fortaleza':  'M2 10V5h1V3h1v2h1V3h2v2h1V3h1v2h1v5zm2-4v3h4V6z', // torre almenas
+  'Templo':     'M6 1L2 5v1h2v4h4V6h2V5zm0 2.5L8 5H4z',           // templo triangular
+  'Cueva':      'M1 10l3-7 2 3 2-3 3 7zm4-4l1 2 1-2z',             // montaña con abertura
+  'Bosque':     'M6 1L3 5h1.5L3 8h2v2h2V8h2l-1.5-3H9z',            // pino
+  'Puerto':     'M6 1v3M4 4l2 3 2-3M3 8h6M5 8v2h2V8',              // ancla
+  'Torre':      'M4 10V4l2-2 2 2v6zm1-5v2h2V5z',                    // torre
+  'Pueblo':     'M2 10V6l4-4 4 4v4zm3-3v2h2V7z',                    // casa
+  'Aldea':      'M3 10V7l3-3 3 3v3zm2-2v1h2V8z',                    // cabaña
+  'Otro':       'M6 2L2 6l4 4 4-4z',                                 // diamante
+};
+
+const MARKER_COLORS = {
+  'Dungeon': '#dc3545', 'Ruinas': '#888', 'Fortaleza': '#6f42c1', 'Templo': '#ffc107',
+  'Cueva': '#795548', 'Bosque': '#28a745', 'Puerto': '#17a2b8', 'Torre': '#fd7e14',
+  'Pueblo': '#e8c874', 'Aldea': '#a5854a', 'Otro': '#adb5bd',
+};
+
+let markerMode = false;
+let pendingMarkerCoords = null;
+
+function toggleMarkerMode() {
+  markerMode = !markerMode;
+  const btn = document.getElementById('btn-add-marker');
+  if (btn) btn.classList.toggle('active', markerMode);
+  if (mapSvgEl) mapSvgEl.style.cursor = markerMode ? 'crosshair' : '';
+}
+
+function screenToSvg(clientX, clientY) {
+  const rect = mapSvgEl.getBoundingClientRect();
+  return {
+    x: vbX + (clientX - rect.left) / rect.width * vbW,
+    y: vbY + (clientY - rect.top) / rect.height * vbH,
+  };
+}
+
+function onMarkerDragStart(e) {
+  e.dataTransfer.setData('text/plain', 'new-marker');
+  e.dataTransfer.effectAllowed = 'copy';
+}
+
+function initMapMarkerDrop() {
+  if (!mapSvgEl) return;
+  const vp = document.getElementById('map-viewport');
+
+  // Drag & drop (desktop)
+  vp.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('text/plain')) e.preventDefault();
+  });
+  vp.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.getData('text/plain') !== 'new-marker') return;
+    const coords = screenToSvg(e.clientX, e.clientY);
+    openMarkerModal(coords.x, coords.y);
+  });
+
+  // Click/tap modo marcador (mobile + desktop fallback)
+  mapSvgEl.addEventListener('click', (e) => {
+    if (!markerMode) return;
+    e.stopPropagation();
+    const coords = screenToSvg(e.clientX, e.clientY);
+    openMarkerModal(coords.x, coords.y);
+    toggleMarkerMode(); // desactivar tras colocar
+  });
+}
+
+function openMarkerModal(x, y) {
+  pendingMarkerCoords = { x, y };
+  openModal('lugares', null);
+  // Auto-marcar checkboxes para jugadores
+  if (!isDM()) {
+    setTimeout(() => {
+      const cb1 = document.getElementById('field-conocido_jugadores');
+      const cb2 = document.getElementById('field-creado_por_jugador');
+      if (cb1) cb1.checked = true;
+      if (cb2) cb2.checked = true;
+    }, 50);
+  }
+}
+
+function renderMapMarkers() {
+  if (!mapSvgEl) return;
+  const ns = 'http://www.w3.org/2000/svg';
+
+  // Eliminar capa previa
+  let g = mapSvgEl.querySelector('#markers');
+  if (g) g.remove();
+
+  g = document.createElementNS(ns, 'g');
+  g.setAttribute('id', 'markers');
+  mapSvgEl.appendChild(g);
+
+  const lugares = DATA.lugares || [];
+  const visibles = isDM() ? lugares : lugares.filter(l => l.conocido_jugadores || l.creado_por_jugador);
+
+  for (const lugar of visibles) {
+    const pos = MAP_MARKERS[lugar.notion_id];
+    if (!pos) continue;
+
+    const color = MARKER_COLORS[lugar.tipo] || MARKER_COLORS['Otro'];
+    const iconPath = MARKER_ICONS[lugar.tipo] || MARKER_ICONS['Otro'];
+    const size = 3; // similar a burgs (ciudades=2, pueblos=1)
+    const half = size / 2;
+
+    // Inyectar symbol si no existe
+    const symId = `marker-icon-${(lugar.tipo || 'Otro').replace(/\s/g, '')}`;
+    if (!mapSvgEl.querySelector(`#${symId}`)) {
+      const defs = mapSvgEl.querySelector('defs');
+      if (defs) {
+        const sym = document.createElementNS(ns, 'symbol');
+        sym.setAttribute('id', symId);
+        sym.setAttribute('viewBox', '0 0 12 12');
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('d', iconPath);
+        sym.appendChild(p);
+        defs.appendChild(sym);
+      }
+    }
+
+    const pin = document.createElementNS(ns, 'g');
+    pin.setAttribute('class', 'map-marker');
+    pin.style.cursor = 'pointer';
+
+    // Icono usando <use> (tamaño consistente con burgs)
+    const use = document.createElementNS(ns, 'use');
+    use.setAttribute('href', `#${symId}`);
+    use.setAttribute('x', String(pos.x - half));
+    use.setAttribute('y', String(pos.y - half));
+    use.setAttribute('width', String(size));
+    use.setAttribute('height', String(size));
+    use.setAttribute('fill', '#ffffff');
+    use.setAttribute('fill-opacity', '0.85');
+    use.setAttribute('stroke', '#3e3e4b');
+    use.setAttribute('stroke-width', '0.3');
+    pin.appendChild(use);
+
+    // Label (tamaño proporcional a burgs)
+    const label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', String(pos.x));
+    label.setAttribute('y', String(pos.y + half + 2.5));
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '2.5');
+    label.setAttribute('fill', '#fff');
+    label.setAttribute('stroke', '#000');
+    label.setAttribute('stroke-width', '0.2');
+    label.setAttribute('paint-order', 'stroke');
+    label.textContent = lugar.nombre;
+    pin.appendChild(label);
+
+    // Click → detalle
+    pin.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDetail('lugares', lugar);
+    });
+
+    g.appendChild(pin);
+  }
 }
 
 // ── RELOAD DATA ───────────────────────────────────────────────────
