@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  if (isLoggedIn()) bootApp();
+  initAuth().then(() => { if (isLoggedIn()) bootApp(); });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -55,46 +55,8 @@ function getGitHubToken() {
 
 // ── DATA LOADING ──────────────────────────────────────────────
 async function loadData() {
-  const files = ['players','quests','ciudades','establecimientos','lugares','npcs','items','notas_dm','notas_jugadores'];
-  const useNotion = CONFIG.USE_NOTION && CONFIG.WORKER_URL;
-
-  if (useNotion) {
-    try {
-      await Promise.all(files.map(async (f) => {
-        const res = await fetch(`${CONFIG.WORKER_URL}/api/${f}`);
-        if (!res.ok) throw new Error(`Worker ${f}: ${res.status}`);
-        DATA[f] = await res.json();
-      }));
-      console.log('✓ Datos cargados desde Notion');
-      // Marcadores: localStorage primero, luego JSON remoto como fallback
-      try {
-        const stored = localStorage.getItem('map_markers');
-        if (stored) { MAP_MARKERS = JSON.parse(stored); }
-        else { const mr = await fetch(`data/markers.json?t=${Date.now()}`); MAP_MARKERS = await mr.json(); }
-      } catch { MAP_MARKERS = {}; }
-      return;
-    } catch(e) {
-      console.warn('⚠ Notion falló, usando JSON locales:', e.message);
-    }
-  }
-
-  // Fallback: JSON locales
-  await Promise.all(files.map(async (f) => {
-    try {
-      const res = await fetch(`data/${f}.json?t=${Date.now()}`);
-      DATA[f] = await res.json();
-    } catch(e) {
-      DATA[f] = [];
-    }
-  }));
-  console.log('✓ Datos cargados desde JSON locales');
-
-  // Marcadores: localStorage primero, luego JSON local como fallback
-  try {
-    const stored = localStorage.getItem('map_markers');
-    if (stored) { MAP_MARKERS = JSON.parse(stored); }
-    else { const res = await fetch(`data/markers.json?t=${Date.now()}`); MAP_MARKERS = await res.json(); }
-  } catch { MAP_MARKERS = {}; }
+  await loadAllData();
+  console.log('✓ Datos cargados desde Supabase');
 }
 
 // ── TAB SWITCHING ───────────────────────────────────────────────
@@ -154,16 +116,10 @@ async function toggleVisibility(entity, notionId, iconEl) {
   iconEl.classList.toggle('is-visible', newVal);
   iconEl.title = newVal ? 'Visible para jugadores' : 'Oculto para jugadores';
 
-  // Persistir en Notion
-  if (CONFIG.USE_NOTION && CONFIG.WORKER_URL) {
-    try {
-      await fetch(`${CONFIG.WORKER_URL}/api/${dataKey}/${notionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item),
-      });
-    } catch(e) { console.warn('Toggle visibility save failed:', e); }
-  }
+  // Persistir en Supabase
+  try {
+    await sbUpdate(dataKey, item._sbid, { [field]: newVal });
+  } catch(e) { console.warn('Toggle visibility save failed:', e); }
 }
 
 function escapeHtml(str) {
@@ -318,21 +274,11 @@ function openDetail(section, data) {
 
   document.getElementById('modal-overlay').classList.add('open');
 
-  // Cargar contenido de página bajo demanda para notas
-  if (data.notion_id && CONFIG.WORKER_URL) {
-    const targetId = section === 'notas_dm' ? 'session-prep-content' : section === 'notas_jugadores' ? 'nota-page-content' : null;
-    if (targetId && (section !== 'notas_dm' || isDM())) {
-      fetch(`${CONFIG.WORKER_URL}/api/content/${data.notion_id}`)
-        .then(r => r.json())
-        .then(res => {
-          const el = document.getElementById(targetId);
-          if (el) el.innerHTML = res.html || '<em>Sin contenido</em>';
-        })
-        .catch(() => {
-          const el = document.getElementById(targetId);
-          if (el) el.innerHTML = '<em>Error al cargar</em>';
-        });
-    }
+  // Mostrar contenido HTML de notas (pre-migrado desde Notion)
+  const targetId = section === 'notas_dm' ? 'session-prep-content' : section === 'notas_jugadores' ? 'nota-page-content' : null;
+  if (targetId && (section !== 'notas_dm' || isDM())) {
+    const el = document.getElementById(targetId);
+    if (el) el.innerHTML = data.contenido_html || '<em>Sin contenido</em>';
   }
 }
 
@@ -943,19 +889,19 @@ async function saveToGitHub(filename, data) {
 }
 
 async function deleteLugar(notionId) {
-  if (!confirm('¿Eliminar este lugar? Se archivará en Notion.')) return;
+  if (!confirm('¿Eliminar este lugar? Se archivará.')) return;
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    if (CONFIG.USE_NOTION && CONFIG.WORKER_URL) {
-      const res = await fetch(`${CONFIG.WORKER_URL}/api/lugares/${notionId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Error al eliminar');
+    const lugar = (DATA.lugares || []).find(l => l.notion_id === notionId);
+    if (lugar && lugar._sbid) {
+      await sbDelete('lugares', lugar._sbid);
+      await sbClient.from('marcadores').delete().eq('lugar_id', lugar._sbid);
     }
     DATA.lugares = (DATA.lugares || []).filter(l => l.notion_id !== notionId);
     if (MAP_MARKERS[notionId]) {
       delete MAP_MARKERS[notionId];
       localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
-      try { await saveToGitHub('markers.json', MAP_MARKERS); } catch(e) { console.warn('markers.json save failed:', e); }
     }
     closeModal();
     renderAll();
@@ -969,7 +915,7 @@ async function deleteLugar(notionId) {
 async function saveMarkerPosition(notionId, x, y) {
   MAP_MARKERS[notionId] = { x, y };
   localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
-  try { await saveToGitHub('markers.json', MAP_MARKERS); } catch(e) { console.warn('GitHub markers sync failed:', e); }
+  try { await sbUpsertMarker(notionId, x, y); } catch(e) { console.warn('Supabase marker sync failed:', e); }
 }
 
 // ── MODAL (Edit/Add) ─────────────────────────────────────────────────
@@ -1284,11 +1230,6 @@ function closeModal() {
 async function saveModal() {
   if (!currentModalSection) return;
 
-  if (!(CONFIG.USE_NOTION && CONFIG.WORKER_URL) && !getGitHubToken()) {
-    alert('No hay conexión configurada para guardar datos.');
-    return;
-  }
-
   const schema = FORM_SCHEMAS[currentModalSection] || [];
   const newData = currentModalData ? {...currentModalData} : { notion_id: null };
 
@@ -1351,31 +1292,11 @@ async function saveModal() {
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    if (CONFIG.USE_NOTION && CONFIG.WORKER_URL) {
-      if (action === 'add') {
-        const res = await fetch(`${CONFIG.WORKER_URL}/api/${dataKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newData),
-        });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status); }
-        const created = await res.json();
-        newData.notion_id = created.notion_id;
-        // Si creamos un Lugar desde el mapa, guardar posición del marcador
-        if (dataKey === 'lugares' && pendingMarkerCoords) {
-          try { await saveMarkerPosition(created.notion_id, pendingMarkerCoords.x, pendingMarkerCoords.y); } catch(me) { console.warn('Marker save failed:', me); }
-          pendingMarkerCoords = null;
-        }
-      } else {
-        const res = await fetch(`${CONFIG.WORKER_URL}/api/${dataKey}/${newData.notion_id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newData),
-        });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status); }
-      }
-    } else {
-      await saveToGitHub(filename, DATA[dataKey]);
+    await sbSave(dataKey, newData, action);
+    // Si creamos un Lugar desde el mapa, guardar posición del marcador
+    if (action === 'add' && dataKey === 'lugares' && pendingMarkerCoords) {
+      try { await saveMarkerPosition(newData.notion_id, pendingMarkerCoords.x, pendingMarkerCoords.y); } catch(me) { console.warn('Marker save failed:', me); }
+      pendingMarkerCoords = null;
     }
     closeModal();
     renderAll();
