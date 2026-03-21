@@ -428,7 +428,8 @@ function buildDetailHTML(section, data) {
     }
     case 'notas_jugadores': {
       const n = data;
-      const jugador = n.jugador || [];
+      const _jug = n.jugador;
+      const jugador = Array.isArray(_jug) ? _jug : (_jug ? [_jug] : []);
       const items = n.items || [];
       return [
         n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
