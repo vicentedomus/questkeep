@@ -47,6 +47,13 @@ function _tableName(dataKey) {
   return dataKey === 'players' ? 'personajes' : dataKey;
 }
 
+/** Extrae el nombre de columna problemática de un mensaje de error de Supabase */
+function _extractBadColumn(msg) {
+  // Supabase/PostgREST: "Could not find the 'xyz' column..."
+  const m = msg.match(/column[^'"]*['"](\w+)['"]/i);
+  return m ? m[1] : null;
+}
+
 // ── JUNCTION TABLE CONFIG ─────────────────────────────────────────────
 
 const M2M_CONFIG = {
@@ -233,7 +240,15 @@ async function sbSave(dataKey, data, action) {
 
   if (action === 'add') {
     delete payload.notion_id; // se asigna tras el INSERT
-    const { data: created, error } = await sbClient.from(sbTable).insert(payload).select().single();
+    let { data: created, error } = await sbClient.from(sbTable).insert(payload).select().single();
+    // Si falla por columna desconocida, reintentar sin ese campo
+    if (error && error.message && error.message.includes('column')) {
+      const badCol = _extractBadColumn(error.message);
+      if (badCol && payload[badCol] !== undefined) {
+        delete payload[badCol];
+        ({ data: created, error } = await sbClient.from(sbTable).insert(payload).select().single());
+      }
+    }
     if (error) throw new Error(error.message);
     savedSbid = created.id;
     // Usar el UUID como notion_id para nuevos registros (clave única en el frontend)
@@ -242,7 +257,15 @@ async function sbSave(dataKey, data, action) {
     data.id        = savedSbid;
     data.notion_id = savedSbid;
   } else {
-    const { error } = await sbClient.from(sbTable).update(payload).eq('id', sbid);
+    let { error } = await sbClient.from(sbTable).update(payload).eq('id', sbid);
+    // Si falla por columna desconocida, reintentar sin ese campo
+    if (error && error.message && error.message.includes('column')) {
+      const badCol = _extractBadColumn(error.message);
+      if (badCol && payload[badCol] !== undefined) {
+        delete payload[badCol];
+        ({ error } = await sbClient.from(sbTable).update(payload).eq('id', sbid));
+      }
+    }
     if (error) throw new Error(error.message);
   }
 
