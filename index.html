@@ -67,7 +67,7 @@
       <div class="section-header">
         <h2 class="section-title">📓 Notas de Sesión</h2>
         <div class="section-controls">
-          <button class="btn" onclick="openModal('notas', null)">&#43; Añadir</button>
+          <button class="btn" onclick="openModal(isDM() ? 'notas_dm' : 'notas_jugadores', null)">&#43; Añadir</button>
         </div>
       </div>
       <div id="filter-bar-notas"></div>

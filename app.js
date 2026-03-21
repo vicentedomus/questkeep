@@ -415,7 +415,8 @@ function buildDetailHTML(section, data) {
     }
     case 'notas_dm': {
       const n = data;
-      const jugadores = n.jugadores_presentes || n.jugadores || [];
+      const _jp = n.jugadores_presentes || n.jugadores;
+      const jugadores = Array.isArray(_jp) ? _jp : (_jp ? [_jp] : []);
       const quests = n.quests || [];
       return [
         n.fecha ? row('Fecha', escapeHtml(n.fecha)) : '',
