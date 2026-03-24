@@ -30,8 +30,15 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuth().then(() => { if (isLoggedIn()) bootApp(); });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    btn.addEventListener('click', () => {
+      switchTab(btn.dataset.tab);
+      closeSidebar();
+    });
   });
+
+  // Mobile menu toggle
+  document.getElementById('menu-toggle').addEventListener('click', toggleSidebar);
+  document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
 
   document.getElementById('modal-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
@@ -59,6 +66,16 @@ function getGitHubToken() {
 async function loadData() {
   await loadAllData();
   console.log('✓ Datos cargados desde Supabase');
+}
+
+// ── MOBILE SIDEBAR ──────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('active');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
 }
 
 // ── TAB SWITCHING ───────────────────────────────────────────────
@@ -271,9 +288,9 @@ function openDetail(section, data) {
   body.classList.add('is-detail');
 
   const footer = document.getElementById('modal-footer');
-  const canDelete = isDM() && section === 'lugares' && data.notion_id;
+  const canDelete = data.notion_id && (isDM() || data.creado_por_jugador);
   footer.innerHTML = `
-    ${canDelete ? `<button class="btn btn-danger" onclick="deleteLugar('${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
+    ${canDelete ? `<button class="btn btn-danger" onclick="deleteRecord('${section}','${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
     <button class="btn" onclick="closeModal()">Cerrar</button>
     ${(isDM() || data.creado_por_jugador) ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
   `;
@@ -898,18 +915,23 @@ async function saveToGitHub(filename, data) {
   }
 }
 
-async function deleteLugar(notionId) {
-  if (!confirm('¿Eliminar este lugar? Se archivará.')) return;
+async function deleteRecord(section, notionId) {
+  const label = SECTION_LABELS[section] || section;
+  if (!confirm(`¿Eliminar este registro de ${label}? Se archivará.`)) return;
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    const lugar = (DATA.lugares || []).find(l => l.notion_id === notionId);
-    if (lugar && lugar._sbid) {
-      await sbDelete('lugares', lugar._sbid);
-      await sbClient.from('marcadores').delete().eq('lugar_id', lugar._sbid);
+    const arr = DATA[section] || [];
+    const record = arr.find(r => r.notion_id === notionId);
+    if (record && record._sbid) {
+      await sbDelete(section, record._sbid);
+      // Limpiar marcadores si es un lugar
+      if (section === 'lugares') {
+        await sbClient.from('marcadores').delete().eq('lugar_id', record._sbid);
+      }
     }
-    DATA.lugares = (DATA.lugares || []).filter(l => l.notion_id !== notionId);
-    if (MAP_MARKERS[notionId]) {
+    DATA[section] = arr.filter(r => r.notion_id !== notionId);
+    if (section === 'lugares' && MAP_MARKERS[notionId]) {
       delete MAP_MARKERS[notionId];
       localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
     }

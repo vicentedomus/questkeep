@@ -1133,6 +1133,29 @@ body.bg-app {
 /* ============================================================
    RESPONSIVE
    ============================================================ */
+/* ── Mobile menu toggle (hidden on desktop) ── */
+#menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--on-surface);
+  cursor: pointer;
+  padding: 6px;
+  margin-right: 8px;
+  border-radius: 6px;
+}
+#menu-toggle:active { background: var(--surface-container); }
+
+/* ── Sidebar overlay (hidden on desktop) ── */
+#sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 199;
+}
+#sidebar-overlay.active { display: block; }
+
 @media (max-width: 768px) {
   :root { --sidebar-width: 0px; }
   #sidebar {
@@ -1144,6 +1167,7 @@ body.bg-app {
     box-shadow: 4px 0 20px rgba(0,0,0,0.5);
   }
   #sidebar.open { left: 0; }
+  #menu-toggle { display: flex; align-items: center; }
   #header { padding: 0 14px; }
   .header-logo { display: none; }
   .btn span { display: none; }
