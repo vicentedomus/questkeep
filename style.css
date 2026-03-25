@@ -1761,6 +1761,8 @@ body.bg-app {
 /* Secciones */
 .plan-section {
   margin-bottom: 36px;
+  min-width: 0;
+  overflow: hidden;
 }
 .plan-section-dark {
   background: var(--surface-container-low, #1c1b1b);
@@ -1963,6 +1965,12 @@ body.bg-app {
   gap: 8px;
 }
 .npc-card.committed { outline: 1px solid #2d5a2d; }
+.npc-card-top, .locacion-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
 .npc-nombre {
   font-family: 'Newsreader', serif;
   font-size: 16px;
