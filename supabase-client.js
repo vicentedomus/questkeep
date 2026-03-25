@@ -91,6 +91,8 @@ async function loadAllData() {
     questEstRes, questNotasDmRes,
     npcLugaresRes, lugarItemsRes, notasJugItemsRes,
     npcItemsRes, marcadoresRes,
+    monstruosRes,
+    itemsCatalogRes,
   ] = await Promise.all([
     sbClient.from('ciudades').select('*').eq('archived', false),
     sbClient.from('personajes').select('*').eq('archived', false),
@@ -112,6 +114,8 @@ async function loadAllData() {
     sbClient.from('notas_jugadores_items').select('nota_jugador_id, item:items(id,notion_id,nombre)'),
     sbClient.from('npcs_items').select('npc_id, item:items(id,notion_id,nombre)'),
     sbClient.from('marcadores').select('*'),
+    sbClient.from('monstruos').select('*').eq('archived', false),
+    sbClient.from('items_catalog').select('*').eq('archived', false),
   ]);
 
   // Verificar errores en tablas principales
@@ -194,6 +198,12 @@ async function loadAllData() {
     lugar.quests        = questByLugar[lugar._sbid] || [];
     return lugar;
   });
+
+  // Monstruos (tabla plana, sin relaciones)
+  DATA.monstruos = (monstruosRes.data || []).map(_norm);
+
+  // Catálogo de ítems (tabla plana, sin relaciones)
+  DATA.items_catalog = (itemsCatalogRes.data || []).map(_norm);
 
   // Construir MAP_MARKERS desde Supabase (localStorage tiene prioridad)
   const sbMarkers = {};

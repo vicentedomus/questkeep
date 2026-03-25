@@ -2338,3 +2338,295 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-color: var(--primary-container);
   color: var(--on-primary-container, #1a1200);
 }
+
+/* ============================================================
+   BESTIARIO — TABLE VIEW
+   ============================================================ */
+.bestiario-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--outline-variant);
+  border-radius: 8px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+.bestiario-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-family: 'Manrope', sans-serif;
+}
+.bestiario-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.bestiario-table th {
+  background: var(--surface-high);
+  color: var(--on-surface-variant);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 2px solid var(--outline-variant);
+  white-space: nowrap;
+}
+.bestiario-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--outline-variant);
+  color: var(--on-surface);
+  vertical-align: middle;
+}
+.bestiario-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bestiario-row:hover {
+  background: var(--surface-high);
+}
+.bestiario-name {
+  font-family: 'Newsreader', serif;
+  font-weight: 600;
+  color: var(--primary);
+  white-space: nowrap;
+}
+.bestiario-cr {
+  font-weight: 700;
+  text-align: center;
+  color: var(--orange);
+}
+.bestiario-fuente {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+.bestiario-count {
+  padding: 8px 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* ============================================================
+   D&D STAT BLOCK — DETAIL VIEW
+   ============================================================ */
+.statblock {
+  font-family: 'Manrope', sans-serif;
+  color: var(--on-surface);
+}
+.statblock-header {
+  text-align: center;
+  padding-bottom: 8px;
+}
+.statblock-name {
+  font-family: 'Newsreader', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.02em;
+}
+.statblock-meta {
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--on-surface-variant);
+  margin-top: 2px;
+}
+.statblock-divider {
+  height: 3px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, transparent, var(--primary-container), var(--primary), var(--primary-container), transparent);
+  border: none;
+  opacity: 0.35;
+  border-radius: 2px;
+}
+.statblock-combat {
+  padding: 4px 0;
+}
+.statblock-property {
+  padding: 3px 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.statblock-prop-label {
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: 6px;
+}
+.statblock-abilities {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  text-align: center;
+  padding: 8px 0;
+}
+.statblock-ability {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.statblock-ability-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--primary);
+}
+.statblock-ability-score {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+.statblock-ability-mod {
+  font-size: 0.78rem;
+  color: var(--on-surface-variant);
+}
+.statblock-props {
+  padding: 4px 0;
+}
+.statblock-section {
+  margin-top: 8px;
+  border-top: 1px solid var(--outline-variant);
+  padding-top: 8px;
+}
+.statblock-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.statblock-section-title {
+  font-family: 'Newsreader', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  font-style: italic;
+  color: var(--primary);
+}
+.statblock-chevron {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  transition: transform 0.2s;
+}
+.statblock-collapsible.collapsed .statblock-chevron {
+  transform: rotate(-90deg);
+}
+.statblock-collapsible.collapsed .statblock-section-body {
+  display: none;
+}
+.statblock-section-body {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+  padding: 6px 0;
+  white-space: pre-wrap;
+}
+.statblock-footer {
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   ITEM RARITY BADGES
+   ============================================================ */
+.rareza-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.rareza-common {
+  background: rgba(158,158,158,0.15);
+  color: #b0b0b0;
+  border: 1px solid rgba(158,158,158,0.3);
+}
+.rareza-uncommon {
+  background: var(--green-bg);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.rareza-rare {
+  background: var(--blue-bg);
+  color: var(--blue);
+  border: 1px solid var(--blue-border);
+}
+.rareza-very-rare {
+  background: var(--purple-bg);
+  color: var(--purple);
+  border: 1px solid var(--purple-border);
+}
+.rareza-legendary {
+  background: var(--orange-bg);
+  color: var(--orange);
+  border: 1px solid var(--orange-border);
+}
+.rareza-artifact {
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid var(--red-border);
+}
+
+/* ============================================================
+   FULLSCREEN UTIL OVERLAY
+   ============================================================ */
+#fullscreen-util-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: var(--bg);
+  overflow: hidden;
+}
+#fullscreen-util-overlay.open {
+  display: flex;
+}
+.fullscreen-util-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  padding: 16px 24px;
+  overflow: hidden;
+}
+.fullscreen-util-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--outline-variant);
+  flex-shrink: 0;
+}
+.fullscreen-util-title {
+  font-family: 'Newsreader', serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0;
+}
+.fullscreen-util-controls {
+  padding: 12px 0 8px;
+  flex-shrink: 0;
+}
+.fullscreen-util-controls .search-input {
+  max-width: 360px;
+}
+.fullscreen-table-wrapper {
+  flex: 1;
+  max-height: none;
+  overflow-y: auto;
+}
+
+/* ── Bestiario + Catálogo responsive ── */
+@media (max-width: 768px) {
+  .bestiario-table th,
+  .bestiario-table td { padding: 6px 8px; font-size: 0.75rem; }
+  .statblock-abilities { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .fullscreen-util-panel { padding: 12px 12px; }
+  .fullscreen-util-title { font-size: 1.1rem; }
+}
