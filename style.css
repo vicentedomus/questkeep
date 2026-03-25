@@ -1696,6 +1696,7 @@ body.bg-app {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: start;
+  gap: 16px;
 }
 @media (max-width: 960px) {
   .plan-row-2col {
@@ -1812,6 +1813,18 @@ body.bg-app {
 .plan-committed-badge {
   font-size: 11px;
   color: #6fcf97;
+}
+.plan-commit-item-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.plan-indb-badge {
+  font-size: 10px;
+  color: #9c8f78;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Gancho Fuerte */
