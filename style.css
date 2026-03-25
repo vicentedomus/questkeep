@@ -1672,6 +1672,7 @@ body.bg-app {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: start;
+  gap: 16px;
 }
 @media (max-width: 960px) {
   .plan-row-2col {
@@ -1957,6 +1958,26 @@ body.bg-app {
   padding-left: 10px;
   margin-top: 4px;
   line-height: 1.5;
+}
+
+/* Card top row (nombre + acción individual) */
+.npc-card-top, .locacion-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.plan-commit-item-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.plan-indb-badge {
+  font-size: 10px;
+  color: #9c8f78;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Locaciones */
