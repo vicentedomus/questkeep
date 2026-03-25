@@ -30,15 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuth().then(() => { if (isLoggedIn()) bootApp(); });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      switchTab(btn.dataset.tab);
-      closeSidebar();
-    });
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-
-  // Mobile menu toggle
-  document.getElementById('menu-toggle').addEventListener('click', toggleSidebar);
-  document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
 
   document.getElementById('modal-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
@@ -66,16 +59,6 @@ function getGitHubToken() {
 async function loadData() {
   await loadAllData();
   console.log('✓ Datos cargados desde Supabase');
-}
-
-// ── MOBILE SIDEBAR ──────────────────────────────────────────────
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('sidebar-overlay').classList.toggle('active');
-}
-function closeSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('active');
 }
 
 // ── TAB SWITCHING ───────────────────────────────────────────────
@@ -271,8 +254,6 @@ function openDetailFromCard(el) {
   if (section === 'notas_dm') arr = DATA.notas_dm || [];
   else if (section === 'notas_jugadores') arr = DATA.notas_jugadores || [];
   else if (section === 'personajes') arr = DATA.players || [];
-  else if (section === 'monstruos') arr = DATA.monstruos || [];
-  else if (section === 'items_catalog') arr = DATA.items_catalog || [];
   else arr = DATA[section] || [];
   const item = arr.find(x => x.notion_id === notionId);
   if (item) openDetail(section, item);
@@ -290,12 +271,11 @@ function openDetail(section, data) {
   body.classList.add('is-detail');
 
   const footer = document.getElementById('modal-footer');
-  const isReadOnly = section === 'monstruos' || section === 'items_catalog';
-  const canDelete = !isReadOnly && data.notion_id && (isDM() || data.creado_por_jugador);
+  const canDelete = isDM() && section === 'lugares' && data.notion_id;
   footer.innerHTML = `
-    ${canDelete ? `<button class="btn btn-danger" onclick="deleteRecord('${section}','${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
+    ${canDelete ? `<button class="btn btn-danger" onclick="deleteLugar('${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
     <button class="btn" onclick="closeModal()">Cerrar</button>
-    ${(!isReadOnly && (isDM() || data.creado_por_jugador)) ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
+    ${(isDM() || data.creado_por_jugador) ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
   `;
 
   document.getElementById('modal-overlay').classList.add('open');
@@ -464,121 +444,6 @@ function buildDetailHTML(section, data) {
         textBlock('Resumen', n.resumen),
         `<div class="detail-section" id="nota-content-container"><div class="detail-label">Contenido</div><div class="detail-text" id="nota-page-content"><em>Cargando...</em></div></div>`,
       ].join('');
-    }
-    case 'monstruos': {
-      const m = data;
-      const mod = (score) => {
-        if (score === null || score === undefined) return '';
-        const bonus = Math.floor((score - 10) / 2);
-        return bonus >= 0 ? `+${bonus}` : `${bonus}`;
-      };
-      const statblockSection = (title, content) => {
-        if (!content) return '';
-        return `
-          <div class="statblock-section statblock-collapsible">
-            <div class="statblock-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
-              <span class="statblock-section-title">${title}</span>
-              <span class="statblock-chevron">&#9660;</span>
-            </div>
-            <div class="statblock-section-body">${content}</div>
-          </div>`;
-      };
-      const prop = (label, value) => {
-        if (!value) return '';
-        return `<div class="statblock-property"><span class="statblock-prop-label">${label}</span> ${escapeHtml(String(value))}</div>`;
-      };
-      const abilities = ['fuerza','destreza','constitucion','inteligencia','sabiduria','carisma'];
-      const abLabels = ['FUE','DES','CON','INT','SAB','CAR'];
-
-      return `
-        <div class="statblock">
-          <div class="statblock-header">
-            <div class="statblock-name">${escapeHtml(m.nombre || '')}</div>
-            <div class="statblock-meta">${escapeHtml([m.tamano, m.tipo, m.alineamiento].filter(Boolean).join(' \u2022 '))}</div>
-          </div>
-          <div class="statblock-divider"></div>
-
-          <div class="statblock-combat">
-            ${prop('Armor Class', m.ac)}
-            ${prop('Hit Points', m.hp)}
-            ${prop('Speed', m.velocidad)}
-          </div>
-          <div class="statblock-divider"></div>
-
-          <div class="statblock-abilities">
-            ${abilities.map((ab, i) => {
-              const score = m[ab];
-              return `<div class="statblock-ability">
-                <div class="statblock-ability-label">${abLabels[i]}</div>
-                <div class="statblock-ability-score">${score !== null && score !== undefined ? score : '—'}</div>
-                <div class="statblock-ability-mod">${score !== null && score !== undefined ? '(' + mod(score) + ')' : ''}</div>
-              </div>`;
-            }).join('')}
-          </div>
-          <div class="statblock-divider"></div>
-
-          <div class="statblock-props">
-            ${prop('Saving Throws', m.tiradas_salvacion)}
-            ${prop('Skills', m.habilidades)}
-            ${prop('Vulnerabilities', m.vulnerabilidades)}
-            ${prop('Resistances', m.resistencias)}
-            ${prop('Damage Immunities', m.inmunidades_dano)}
-            ${prop('Condition Immunities', m.inmunidades_condicion)}
-            ${prop('Senses', m.sentidos)}
-            ${prop('Languages', m.idiomas)}
-            ${prop('Challenge', m.cr)}
-          </div>
-
-          ${m.rasgos || m.acciones || m.acciones_bonus || m.reacciones || m.acciones_legendarias ? '<div class="statblock-divider"></div>' : ''}
-          ${statblockSection('Rasgos', m.rasgos ? escapeHtml(m.rasgos).replace(/\n/g,'<br>') : '')}
-          ${statblockSection('Acciones', m.acciones ? escapeHtml(m.acciones).replace(/\n/g,'<br>') : '')}
-          ${statblockSection('Acciones Bonus', m.acciones_bonus ? escapeHtml(m.acciones_bonus).replace(/\n/g,'<br>') : '')}
-          ${statblockSection('Reacciones', m.reacciones ? escapeHtml(m.reacciones).replace(/\n/g,'<br>') : '')}
-          ${statblockSection('Acciones Legendarias', m.acciones_legendarias ? escapeHtml(m.acciones_legendarias).replace(/\n/g,'<br>') : '')}
-
-          <div class="statblock-footer">
-            ${m.fuente ? `<span>${escapeHtml(m.fuente)}</span>` : ''}
-            ${m.entorno ? `<span><em>Entorno: ${escapeHtml(m.entorno)}</em></span>` : ''}
-          </div>
-        </div>`;
-    }
-    case 'items_catalog': {
-      const it = data;
-      const prop = (label, value) => {
-        if (!value) return '';
-        return `<div class="statblock-property"><span class="statblock-prop-label">${label}</span> ${escapeHtml(String(value))}</div>`;
-      };
-      const rarezaClass = 'rareza-' + (it.rareza || '').toLowerCase().replace(/\s+/g,'-');
-      return `
-        <div class="statblock">
-          <div class="statblock-header">
-            <div class="statblock-name">${escapeHtml(it.nombre || '')}</div>
-            <div class="statblock-meta">${escapeHtml([it.tipo, it.rareza].filter(Boolean).join(' \u2022 '))}${it.requiere_sintonizacion ? ' <span style="color:var(--orange)">(requires attunement)</span>' : ''}</div>
-          </div>
-          <div class="statblock-divider"></div>
-
-          <div class="statblock-combat">
-            ${it.rareza ? `<div class="statblock-property"><span class="statblock-prop-label">Rarity</span> <span class="rareza-badge ${rarezaClass}">${escapeHtml(it.rareza)}</span></div>` : ''}
-            ${prop('Type', it.tipo)}
-            ${prop('Damage', it.dano)}
-            ${prop('Weight', it.peso)}
-            ${prop('Value', it.valor)}
-            ${prop('Properties', it.propiedades)}
-          </div>
-
-          ${it.descripcion ? `
-          <div class="statblock-divider"></div>
-          <div class="statblock-section">
-            <div class="statblock-section-header">
-              <span class="statblock-section-title">Descripción</span>
-            </div>
-            <div class="statblock-section-body">${escapeHtml(it.descripcion).replace(/\n/g,'<br>')}</div>
-          </div>` : ''}
-
-          <div class="statblock-footer">
-            ${it.fuente ? `<span>${escapeHtml(it.fuente)}</span>` : ''}
-          </div>
-        </div>`;
     }
     default:
       return `<pre style="font-size:0.75rem;color:var(--text-dim)">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
@@ -1033,23 +898,18 @@ async function saveToGitHub(filename, data) {
   }
 }
 
-async function deleteRecord(section, notionId) {
-  const label = SECTION_LABELS[section] || section;
-  if (!confirm(`¿Eliminar este registro de ${label}? Se archivará.`)) return;
+async function deleteLugar(notionId) {
+  if (!confirm('¿Eliminar este lugar? Se archivará.')) return;
   const spinner = document.getElementById('spinner');
   spinner.classList.add('open');
   try {
-    const arr = DATA[section] || [];
-    const record = arr.find(r => r.notion_id === notionId);
-    if (record && record._sbid) {
-      await sbDelete(section, record._sbid);
-      // Limpiar marcadores si es un lugar
-      if (section === 'lugares') {
-        await sbClient.from('marcadores').delete().eq('lugar_id', record._sbid);
-      }
+    const lugar = (DATA.lugares || []).find(l => l.notion_id === notionId);
+    if (lugar && lugar._sbid) {
+      await sbDelete('lugares', lugar._sbid);
+      await sbClient.from('marcadores').delete().eq('lugar_id', lugar._sbid);
     }
-    DATA[section] = arr.filter(r => r.notion_id !== notionId);
-    if (section === 'lugares' && MAP_MARKERS[notionId]) {
+    DATA.lugares = (DATA.lugares || []).filter(l => l.notion_id !== notionId);
+    if (MAP_MARKERS[notionId]) {
       delete MAP_MARKERS[notionId];
       localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
     }
@@ -1066,219 +926,6 @@ async function saveMarkerPosition(notionId, x, y) {
   MAP_MARKERS[notionId] = { x, y };
   localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
   try { await sbUpsertMarker(notionId, x, y); } catch(e) { console.warn('Supabase marker sync failed:', e); }
-}
-
-// ── RENDER BESTIARIO ─────────────────────────────────────────────────
-
-function renderBestiarioFilters() {
-  const bar = document.getElementById('filter-bar-bestiario');
-  if (!bar) return;
-
-  const items = DATA.monstruos || [];
-
-  const unique = (fn) => [...new Set(items.map(fn).filter(Boolean))].sort();
-  const tipos = unique(m => m.tipo);
-  const tamanos = unique(m => m.tamano);
-  const alineamientos = unique(m => m.alineamiento);
-  const fuentes = unique(m => m.fuente);
-  const entornos = [...new Set(items.flatMap(m => (m.entorno || '').split(',').map(e => e.trim())).filter(Boolean))].sort();
-
-  // CR con ordenamiento numérico especial (fracciones primero)
-  const crToNum = v => { const s = String(v); if (s.includes('/')) { const [n,d] = s.split('/'); return Number(n)/Number(d); } return Number(s); };
-  const crs = [...new Set(items.map(m => m.cr).filter(v => v !== null && v !== undefined && v !== ''))].sort((a,b) => crToNum(a) - crToNum(b));
-
-  const buildSelect = (id, label, opts) => `
-    <select class="filter-select" id="${id}" onchange="renderBestiarioGrid()">
-      <option value="">${label}</option>
-      ${opts.map(o => `<option value="${escapeHtml(String(o))}">${escapeHtml(String(o))}</option>`).join('')}
-    </select>`;
-
-  bar.innerHTML = `
-    <div class="filter-bar">
-      ${buildSelect('filter-bestiario-tipo', 'Tipo', tipos)}
-      ${buildSelect('filter-bestiario-tamano', 'Tamaño', tamanos)}
-      ${buildSelect('filter-bestiario-cr', 'CR', crs)}
-      ${buildSelect('filter-bestiario-alineamiento', 'Alineamiento', alineamientos)}
-      ${buildSelect('filter-bestiario-entorno', 'Entorno', entornos)}
-      ${buildSelect('filter-bestiario-fuente', 'Fuente', fuentes)}
-      <button class="btn" onclick="clearBestiarioFilters()" style="font-size:0.75rem;padding:6px 10px">Limpiar</button>
-    </div>`;
-}
-
-function clearBestiarioFilters() {
-  ['tipo','tamano','cr','alineamiento','entorno','fuente'].forEach(f => {
-    const el = document.getElementById(`filter-bestiario-${f}`);
-    if (el) el.value = '';
-  });
-  const search = document.getElementById('search-bestiario');
-  if (search) search.value = '';
-  renderBestiarioGrid();
-}
-
-function renderBestiarioGrid() {
-  const thead = document.getElementById('thead-bestiario');
-  const tbody = document.getElementById('tbody-bestiario');
-  const countEl = document.getElementById('bestiario-count');
-
-  let items = DATA.monstruos || [];
-
-  // Búsqueda por texto
-  items = filterBySearch(items, 'search-bestiario', ['nombre']);
-
-  // Filtros dropdown
-  const fVal = id => document.getElementById(id)?.value || '';
-  const fTipo = fVal('filter-bestiario-tipo');
-  const fTamano = fVal('filter-bestiario-tamano');
-  const fCR = fVal('filter-bestiario-cr');
-  const fAlin = fVal('filter-bestiario-alineamiento');
-  const fEntorno = fVal('filter-bestiario-entorno');
-  const fFuente = fVal('filter-bestiario-fuente');
-
-  if (fTipo) items = items.filter(m => m.tipo === fTipo);
-  if (fTamano) items = items.filter(m => m.tamano === fTamano);
-  if (fCR) items = items.filter(m => String(m.cr) === fCR);
-  if (fAlin) items = items.filter(m => m.alineamiento === fAlin);
-  if (fEntorno) items = items.filter(m => (m.entorno || '').includes(fEntorno));
-  if (fFuente) items = items.filter(m => m.fuente === fFuente);
-
-  // Ordenar por nombre
-  items.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
-
-  // Header
-  thead.innerHTML = `<tr>
-    <th>Nombre</th><th>CR</th><th>Tipo</th><th>Tamaño</th>
-    <th>AC</th><th>HP</th><th>Vel.</th><th>Alineamiento</th>
-    <th>Entorno</th><th>Fuente</th>
-  </tr>`;
-
-  const total = (DATA.monstruos || []).length;
-
-  if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--on-surface-variant)">No se encontraron monstruos.</td></tr>`;
-    if (countEl) countEl.textContent = '';
-    return;
-  }
-
-  tbody.innerHTML = items.map(m => `
-    <tr class="bestiario-row" data-section="monstruos" data-notion-id="${m.notion_id || m.id || ''}" onclick="openDetailFromCard(this)">
-      <td class="bestiario-name">${escapeHtml(m.nombre || '')}</td>
-      <td class="bestiario-cr">${escapeHtml(val(m.cr))}</td>
-      <td>${escapeHtml(val(m.tipo))}</td>
-      <td>${escapeHtml(val(m.tamano))}</td>
-      <td>${escapeHtml(val(m.ac))}</td>
-      <td>${escapeHtml(val(m.hp))}</td>
-      <td>${escapeHtml(val(m.velocidad))}</td>
-      <td>${escapeHtml(val(m.alineamiento))}</td>
-      <td>${escapeHtml(val(m.entorno))}</td>
-      <td class="bestiario-fuente">${escapeHtml(val(m.fuente))}</td>
-    </tr>`).join('');
-
-  if (countEl) countEl.textContent = `${items.length} de ${total} monstruos`;
-}
-
-function renderBestiario() {
-  renderBestiarioFilters();
-  renderBestiarioGrid();
-}
-
-// ── RENDER CATÁLOGO ITEMS ─────────────────────────────────────────────
-
-function renderCatalogoItemsFilters() {
-  const bar = document.getElementById('filter-bar-catalogo_items');
-  if (!bar) return;
-
-  const items = DATA.items_catalog || [];
-
-  const unique = (fn) => [...new Set(items.map(fn).filter(Boolean))].sort();
-  const tipos = unique(m => m.tipo);
-  const rarezas = ['Common','Uncommon','Rare','Very Rare','Legendary','Artifact'].filter(r => items.some(i => i.rareza === r));
-  const fuentes = unique(m => m.fuente);
-  const attune = [{val:'true',label:'Sí'},{val:'false',label:'No'}];
-
-  const buildSelect = (id, label, opts) => `
-    <select class="filter-select" id="${id}" onchange="renderCatalogoItemsGrid()">
-      <option value="">${label}</option>
-      ${opts.map(o => typeof o === 'object'
-        ? `<option value="${o.val}">${o.label}</option>`
-        : `<option value="${escapeHtml(String(o))}">${escapeHtml(String(o))}</option>`
-      ).join('')}
-    </select>`;
-
-  bar.innerHTML = `
-    <div class="filter-bar">
-      ${buildSelect('filter-catalogo-tipo', 'Tipo', tipos)}
-      ${buildSelect('filter-catalogo-rareza', 'Rareza', rarezas)}
-      ${buildSelect('filter-catalogo-attune', 'Sintonización', attune)}
-      ${buildSelect('filter-catalogo-fuente', 'Fuente', fuentes)}
-      <button class="btn" onclick="clearCatalogoItemsFilters()" style="font-size:0.75rem;padding:6px 10px">Limpiar</button>
-    </div>`;
-}
-
-function clearCatalogoItemsFilters() {
-  ['tipo','rareza','attune','fuente'].forEach(f => {
-    const el = document.getElementById(`filter-catalogo-${f}`);
-    if (el) el.value = '';
-  });
-  const search = document.getElementById('search-catalogo_items');
-  if (search) search.value = '';
-  renderCatalogoItemsGrid();
-}
-
-function renderCatalogoItemsGrid() {
-  const thead = document.getElementById('thead-catalogo_items');
-  const tbody = document.getElementById('tbody-catalogo_items');
-  const countEl = document.getElementById('catalogo_items-count');
-
-  let items = DATA.items_catalog || [];
-
-  // Búsqueda por texto
-  items = filterBySearch(items, 'search-catalogo_items', ['nombre']);
-
-  // Filtros
-  const fVal = id => document.getElementById(id)?.value || '';
-  const fTipo = fVal('filter-catalogo-tipo');
-  const fRareza = fVal('filter-catalogo-rareza');
-  const fAttune = fVal('filter-catalogo-attune');
-  const fFuente = fVal('filter-catalogo-fuente');
-
-  if (fTipo) items = items.filter(i => i.tipo === fTipo);
-  if (fRareza) items = items.filter(i => i.rareza === fRareza);
-  if (fAttune) items = items.filter(i => String(!!i.requiere_sintonizacion) === fAttune);
-  if (fFuente) items = items.filter(i => i.fuente === fFuente);
-
-  items.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
-
-  thead.innerHTML = `<tr>
-    <th>Nombre</th><th>Rareza</th><th>Tipo</th><th>Attune</th>
-    <th>Daño</th><th>Peso</th><th>Valor</th><th>Fuente</th>
-  </tr>`;
-
-  const total = (DATA.items_catalog || []).length;
-
-  if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--on-surface-variant)">No se encontraron ítems.</td></tr>`;
-    if (countEl) countEl.textContent = '';
-    return;
-  }
-
-  tbody.innerHTML = items.map(it => `
-    <tr class="bestiario-row" data-section="items_catalog" data-notion-id="${it.notion_id || it.id || ''}" onclick="openDetailFromCard(this)">
-      <td class="bestiario-name">${escapeHtml(it.nombre || '')}</td>
-      <td><span class="rareza-badge rareza-${(it.rareza || '').toLowerCase().replace(/\s+/g,'-')}">${escapeHtml(val(it.rareza))}</span></td>
-      <td>${escapeHtml(val(it.tipo))}</td>
-      <td style="text-align:center">${it.requiere_sintonizacion ? '✓' : '—'}</td>
-      <td>${escapeHtml(val(it.dano))}</td>
-      <td>${escapeHtml(val(it.peso))}</td>
-      <td>${escapeHtml(val(it.valor))}</td>
-      <td class="bestiario-fuente">${escapeHtml(val(it.fuente))}</td>
-    </tr>`).join('');
-
-  if (countEl) countEl.textContent = `${items.length} de ${total} ítems`;
-}
-
-function renderCatalogoItems() {
-  renderCatalogoItemsFilters();
-  renderCatalogoItemsGrid();
 }
 
 // ── MODAL (Edit/Add) ─────────────────────────────────────────────────
@@ -1380,9 +1027,7 @@ const FORM_SCHEMAS = {
 const SECTION_LABELS = {
   personajes:'Personaje', quests:'Quest', ciudades:'Ciudad',
   establecimientos:'Establecimiento', lugares:'Lugar', npcs:'NPC',
-  items:'Item', notas_dm:'Nota DM', notas_jugadores:'Nota Jugador', notas:'Nota',
-  monstruos:'Monstruo',
-  items_catalog:'Ítem'
+  items:'Item', notas_dm:'Nota DM', notas_jugadores:'Nota Jugador', notas:'Nota'
 };
 
 // ── FORM FIELD RENDERER ───────────────────────────────────────────────
@@ -2294,8 +1939,6 @@ const UTIL_CARDS = [
   { id: 'shop-gen', title: 'Generador de Inventario', desc: 'Genera inventario aleatorio de tiendas mágicas según ciudad y tipo de establecimiento.', icon: '&#9876;' },
   { id: 'campaign-ai', title: 'Asistente de Campaña', desc: 'Chat IA para preparar sesiones, generar NPCs, diseñar encuentros y consultar la campaña.', icon: '&#9876;' },
   { id: 'session-prep', title: 'Preparador de Sesiones', desc: 'Prepara sesiones perfectas con los 8 pasos de Sly Flourish.', icon: '&#128220;' },
-  { id: 'bestiario', title: 'Bestiario', desc: 'Repositorio completo de monstruos con stats, acciones y filtros avanzados.', icon: '&#128050;' },
-  { id: 'catalogo-items', title: 'Catálogo Items', desc: 'Catálogo de ítems mágicos con rareza, propiedades y descripciones.', icon: '&#128218;' },
 ];
 
 function renderUtilidades() {
@@ -2317,8 +1960,6 @@ function openUtilidad(id) {
   if (id === 'shop-gen') openShopGenerator();
   if (id === 'campaign-ai') openAsistente();
   if (id === 'session-prep') openPreparador();
-  if (id === 'bestiario') openBestiario();
-  if (id === 'catalogo-items') openCatalogoItems();
 }
 
 function openShopGenerator() {
@@ -2358,70 +1999,6 @@ function closeUtilWorkspace() {
   const ws = document.getElementById('util-workspace');
   ws.style.display = 'none';
   ws.innerHTML = '';
-}
-
-function openFullscreenUtil(html, afterRender) {
-  let overlay = document.getElementById('fullscreen-util-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'fullscreen-util-overlay';
-    document.body.appendChild(overlay);
-  }
-  overlay.innerHTML = html;
-  overlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  if (afterRender) afterRender();
-}
-
-function closeFullscreenUtil() {
-  const overlay = document.getElementById('fullscreen-util-overlay');
-  if (overlay) {
-    overlay.classList.remove('open');
-    overlay.innerHTML = '';
-  }
-  document.body.style.overflow = '';
-}
-
-function openBestiario() {
-  openFullscreenUtil(`
-    <div class="fullscreen-util-panel">
-      <div class="fullscreen-util-header">
-        <h2 class="fullscreen-util-title">&#128050; Bestiario</h2>
-        <button class="btn" onclick="closeFullscreenUtil()">&#10005; Cerrar</button>
-      </div>
-      <div class="fullscreen-util-controls">
-        <input type="text" class="search-input" id="search-bestiario" placeholder="Buscar monstruo..." oninput="renderBestiario()">
-      </div>
-      <div id="filter-bar-bestiario"></div>
-      <div class="bestiario-table-wrapper fullscreen-table-wrapper">
-        <table class="bestiario-table" id="table-bestiario">
-          <thead id="thead-bestiario"></thead>
-          <tbody id="tbody-bestiario"></tbody>
-        </table>
-      </div>
-      <div id="bestiario-count" class="bestiario-count"></div>
-    </div>`, renderBestiario);
-}
-
-function openCatalogoItems() {
-  openFullscreenUtil(`
-    <div class="fullscreen-util-panel">
-      <div class="fullscreen-util-header">
-        <h2 class="fullscreen-util-title">&#128218; Catálogo Items</h2>
-        <button class="btn" onclick="closeFullscreenUtil()">&#10005; Cerrar</button>
-      </div>
-      <div class="fullscreen-util-controls">
-        <input type="text" class="search-input" id="search-catalogo_items" placeholder="Buscar ítem..." oninput="renderCatalogoItems()">
-      </div>
-      <div id="filter-bar-catalogo_items"></div>
-      <div class="bestiario-table-wrapper fullscreen-table-wrapper">
-        <table class="bestiario-table" id="table-catalogo_items">
-          <thead id="thead-catalogo_items"></thead>
-          <tbody id="tbody-catalogo_items"></tbody>
-        </table>
-      </div>
-      <div id="catalogo_items-count" class="bestiario-count"></div>
-    </div>`, renderCatalogoItems);
 }
 
 function onUtilBurgChange() {

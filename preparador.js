@@ -896,17 +896,59 @@ function renderPlanView(plan) {
   function regenBtn(key) {
     return `<button class="plan-regen-btn" onclick="regenerateBloque('${pid}','${key}')">↺ Regenerar</button>`;
   }
-  function commitBtn(key) {
-    return `<button class="plan-commit-btn" onclick="commitBloque('${pid}','${key}')">✓ Commit</button>`;
+
+  // Verifica si un índice específico ya fue commiteado
+  function isItemCommitted(key, idx) {
+    const val = committed[key];
+    if (val === true) return true;                   // formato viejo: toda la sección
+    if (Array.isArray(val)) return val.includes(idx); // formato nuevo: por índice
+    return false;
   }
-  function sectionHeader(title, key, canCommit) {
-    const isCommitted = committed[key];
+
+  // Verifica si un nombre ya existe en las BDs cargadas
+  function existsInDB(nombre, bloqueKey) {
+    const n = (nombre || '').trim().toLowerCase();
+    if (!n) return false;
+    if (bloqueKey === 'bloque_npcs' || bloqueKey === 'npcs') {
+      return (DATA.npcs || []).some(x => (x.nombre || '').toLowerCase() === n);
+    }
+    if (bloqueKey === 'bloque_locaciones' || bloqueKey === 'locaciones') {
+      return [...(DATA.lugares || []), ...(DATA.ciudades || []), ...(DATA.establecimientos || [])]
+        .some(x => (x.nombre || '').toLowerCase() === n);
+    }
+    if (bloqueKey === 'bloque_tesoros' || bloqueKey === 'tesoros') {
+      return (DATA.items || []).some(x => (x.nombre || '').toLowerCase() === n);
+    }
+    return false;
+  }
+
+  // Badge/botón por tarjeta individual
+  function itemAction(bloqueKey, idx, nombre) {
+    if (existsInDB(nombre, bloqueKey)) {
+      return '<span class="plan-indb-badge">✓ En BD</span>';
+    }
+    if (isItemCommitted(bloqueKey, idx)) {
+      return '<span class="plan-committed-badge">✓ Committed</span>';
+    }
+    return `<button class="plan-commit-btn plan-commit-item-btn" onclick="commitItem('${pid}','${bloqueKey}',${idx})">✓ Commit</button>`;
+  }
+
+  // Verifica si todos los items nuevos de una sección están commiteados o en BD
+  function allSectionDone(bloqueKey, items) {
+    if (committed[bloqueKey] === true) return true;
+    if (!Array.isArray(items) || items.length === 0) return false;
+    return items.every((item, idx) =>
+      existsInDB(item.nombre, bloqueKey) || isItemCommitted(bloqueKey, idx)
+    );
+  }
+
+  function sectionHeader(title, key, canCommit, items) {
+    const allDone = canCommit && allSectionDone(key, items);
     return `<div class="plan-section-header">
       <h2 class="plan-section-title">${title}</h2>
       <div class="plan-section-actions">
-        ${isCommitted ? '<span class="plan-committed-badge">✓ Committed</span>' : ''}
+        ${allDone ? '<span class="plan-committed-badge">✓ Committed</span>' : ''}
         ${regenBtn(key)}
-        ${canCommit && !isCommitted ? commitBtn(key) : ''}
       </div>
     </div>`;
   }
@@ -998,13 +1040,19 @@ function renderPlanView(plan) {
   html += `<div class="plan-row-2col">`;
 
   const npcs = bloques['bloque_npcs'] || bloques['npcs'] || [];
-  const npcsCommitted = committed['bloque_npcs'] || committed['npcs'];
+  const npcsKey = bloques['bloque_npcs'] ? 'bloque_npcs' : 'npcs';
   html += `<div class="plan-section">
-    ${sectionHeader('NPCs Importantes', 'bloque_npcs', true)}
+    ${sectionHeader('NPCs Importantes', npcsKey, true, npcs)}
     <div class="npcs-grid">`;
-  (Array.isArray(npcs) ? npcs : []).forEach(n => {
-    html += `<div class="npc-card${npcsCommitted ? ' committed' : ''}">
-      <div class="npc-nombre">${escapeHtml(n.nombre || '')}</div>
+  (Array.isArray(npcs) ? npcs : []).forEach((n, idx) => {
+    const inDB = existsInDB(n.nombre, npcsKey);
+    const itemComm = isItemCommitted(npcsKey, idx);
+    const cardClass = inDB || itemComm ? ' committed' : '';
+    html += `<div class="npc-card${cardClass}">
+      <div class="npc-card-top">
+        <div class="npc-nombre">${escapeHtml(n.nombre || '')}</div>
+        ${itemAction(npcsKey, idx, n.nombre)}
+      </div>
       ${n.rol ? `<div class="npc-rol-badge">${escapeHtml(n.rol)}</div>` : ''}
       ${n.motivacion ? `<div class="npc-motivacion"><strong>Quiere:</strong> ${escapeHtml(n.motivacion)}</div>` : ''}
       ${n.tono ? `<div class="npc-tono"><strong>Tono:</strong> ${escapeHtml(n.tono)}</div>` : ''}
@@ -1014,13 +1062,19 @@ function renderPlanView(plan) {
   html += `</div></div>`;
 
   const locaciones = bloques['bloque_locaciones'] || bloques['locaciones'] || [];
-  const locCommitted = committed['bloque_locaciones'] || committed['locaciones'];
+  const locKey = bloques['bloque_locaciones'] ? 'bloque_locaciones' : 'locaciones';
   html += `<div class="plan-section plan-section-dark">
-    ${sectionHeader('Locaciones', 'bloque_locaciones', true)}
+    ${sectionHeader('Locaciones', locKey, true, locaciones)}
     <div class="locaciones-grid">`;
-  (Array.isArray(locaciones) ? locaciones : []).forEach(l => {
-    html += `<div class="locacion-card${locCommitted ? ' committed' : ''}">
-      <div class="locacion-nombre">${escapeHtml(l.nombre || '')}</div>
+  (Array.isArray(locaciones) ? locaciones : []).forEach((l, idx) => {
+    const inDB = existsInDB(l.nombre, locKey);
+    const itemComm = isItemCommitted(locKey, idx);
+    const cardClass = inDB || itemComm ? ' committed' : '';
+    html += `<div class="locacion-card${cardClass}">
+      <div class="locacion-card-top">
+        <div class="locacion-nombre">${escapeHtml(l.nombre || '')}</div>
+        ${itemAction(locKey, idx, l.nombre)}
+      </div>
       <div class="locacion-tags">
         ${l.tipo ? `<span class="locacion-tag">${escapeHtml(l.tipo)}</span>` : ''}
         ${l.region ? `<span class="locacion-tag locacion-tag-region">${escapeHtml(l.region)}</span>` : ''}
@@ -1036,15 +1090,19 @@ function renderPlanView(plan) {
   html += `<div class="plan-row-2col">`;
 
   const tesoros = bloques['bloque_tesoros'] || bloques['tesoros'] || [];
-  const tesorosCommitted = committed['bloque_tesoros'] || committed['tesoros'];
+  const tesorosKey = bloques['bloque_tesoros'] ? 'bloque_tesoros' : 'tesoros';
   html += `<div class="plan-section">
-    ${sectionHeader('Tesoros', 'bloque_tesoros', true)}
+    ${sectionHeader('Tesoros', tesorosKey, true, tesoros)}
     <div class="tesoros-grid">`;
-  (Array.isArray(tesoros) ? tesoros : []).forEach(t => {
-    html += `<div class="tesoro-card${tesorosCommitted ? ' committed' : ''}">
+  (Array.isArray(tesoros) ? tesoros : []).forEach((t, idx) => {
+    const inDB = existsInDB(t.nombre, tesorosKey);
+    const itemComm = isItemCommitted(tesorosKey, idx);
+    const cardClass = inDB || itemComm ? ' committed' : '';
+    html += `<div class="tesoro-card${cardClass}">
       <div class="tesoro-top">
         <div class="tesoro-nombre">${escapeHtml(t.nombre || '')}</div>
         ${rarezaBadge(t.rareza)}
+        ${itemAction(tesorosKey, idx, t.nombre)}
       </div>
       ${t.descripcion ? `<div class="tesoro-desc">${escapeHtml(t.descripcion)}</div>` : ''}
       ${t.portador_sugerido ? `<div class="tesoro-para">Para: ${escapeHtml(t.portador_sugerido)}</div>` : ''}
@@ -1148,8 +1206,8 @@ async function regenerateBloque(planId, bloqueKey) {
   }
 }
 
-// ── COMMIT BLOQUE ────────────────────────────────────────────
-async function commitBloque(planId, bloqueKey) {
+// ── COMMIT ITEM INDIVIDUAL ────────────────────────────────────
+async function commitItem(planId, bloqueKey, index) {
   try {
     const { data: plan } = await sbClient.from('session_plans')
       .select('*')
@@ -1157,45 +1215,49 @@ async function commitBloque(planId, bloqueKey) {
       .single();
 
     const items = plan.bloques?.[bloqueKey];
-    if (!items || !Array.isArray(items)) {
-      alert('No hay items para hacer commit en este bloque.');
+    if (!items || !Array.isArray(items) || !items[index]) {
+      alert('Item no encontrado.');
       return;
     }
 
+    const item = items[index];
     document.getElementById('spinner')?.classList.add('active');
 
-    if (bloqueKey === 'npcs') {
-      for (const item of items) {
-        await sbSave('npcs', {
-          nombre: item.nombre || item.name,
-          tipo_npc: item.rol || item.tipo || '',
-          descripcion: item.descripcion || item.description || '',
-          raza: item.raza || '',
-        }, 'add');
-      }
-    } else if (bloqueKey === 'locaciones') {
-      for (const item of items) {
-        await sbSave('lugares', {
-          nombre: item.nombre || item.name,
-          tipo: item.tipo || '',
-          descripcion: item.descripcion || item.description || '',
-          region: item.region || '',
-        }, 'add');
-      }
-    } else if (bloqueKey === 'tesoros') {
-      for (const item of items) {
-        await sbSave('items', {
-          nombre: item.nombre || item.name,
-          tipo: item.tipo || '',
-          rareza: item.rareza || '',
-          descripcion: item.descripcion || item.description || '',
-        }, 'add');
-      }
+    // Normalizar bloqueKey para determinar tabla destino
+    const keyNorm = bloqueKey.replace('bloque_', '');
+
+    if (keyNorm === 'npcs') {
+      await sbSave('npcs', {
+        nombre: item.nombre || item.name,
+        tipo_npc: item.rol || item.tipo || '',
+        descripcion: item.descripcion || item.description || '',
+        raza: item.raza || '',
+      }, 'add');
+    } else if (keyNorm === 'locaciones') {
+      await sbSave('lugares', {
+        nombre: item.nombre || item.name,
+        tipo: item.tipo || '',
+        descripcion: item.descripcion || item.description || '',
+        region: item.region || '',
+      }, 'add');
+    } else if (keyNorm === 'tesoros') {
+      await sbSave('items', {
+        nombre: item.nombre || item.name,
+        tipo: item.tipo || '',
+        rareza: item.rareza || '',
+        descripcion: item.descripcion || item.description || '',
+      }, 'add');
     }
 
-    // Mark as committed
+    // Marcar índice como committed (granular)
     const committed = plan.bloques_committed || {};
-    committed[bloqueKey] = true;
+    if (committed[bloqueKey] === true) {
+      // Ya estaba todo committed, no hacer nada
+    } else {
+      const arr = Array.isArray(committed[bloqueKey]) ? committed[bloqueKey] : [];
+      if (!arr.includes(index)) arr.push(index);
+      committed[bloqueKey] = arr;
+    }
     await sbClient.from('session_plans')
       .update({ bloques_committed: committed })
       .eq('id', planId);
@@ -1206,7 +1268,7 @@ async function commitBloque(planId, bloqueKey) {
     await loadAllData();
     renderAll();
     renderPlanView(plan);
-    showToast(`Bloque "${bloqueKey}" committed a la base de datos.`);
+    showToast(`"${item.nombre}" committed a la base de datos.`);
 
   } catch (e) {
     document.getElementById('spinner')?.classList.remove('active');
