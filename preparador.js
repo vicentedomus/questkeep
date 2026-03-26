@@ -700,7 +700,7 @@ async function generatePlan() {
   // NPCs: objeto completo desde DATA.npcs
   const npcsCompletos = prepSelectedNpcs.map(sel => {
     const n = (DATA.npcs || []).find(x => x.notion_id === sel.id) || {};
-    return { nombre: sel.nombre, raza: n.raza || '', tipo_npc: n.tipo_npc || '', descripcion: n.primera_impresion || '' };
+    return { nombre: sel.nombre, raza: n.raza || '', tipo_npc: n.tipo_npc || '', primera_impresion: n.primera_impresion || '' };
   });
 
   // Locaciones: objeto completo desde las 3 fuentes
@@ -1230,7 +1230,7 @@ async function commitItem(planId, bloqueKey, index) {
       await sbSave('npcs', {
         nombre: item.nombre || item.name,
         tipo_npc: item.rol || item.tipo || '',
-        descripcion: item.descripcion || item.description || '',
+        primera_impresion: item.primera_impresion || item.descripcion || item.description || '',
         raza: item.raza || '',
       }, 'add');
     } else if (keyNorm === 'locaciones') {
