@@ -17,7 +17,9 @@ const ABILITY_NAMES = { 1: 'STR', 2: 'DEX', 3: 'CON', 4: 'INT', 5: 'WIS', 6: 'CH
 async function ddbFetchCharacter(characterId) {
   if (_ddbCache[characterId]) return _ddbCache[characterId];
 
-  const res = await fetch(`${DDB_PROXY_URL}?id=${characterId}`);
+  const res = await fetch(`${DDB_PROXY_URL}?id=${characterId}`, {
+    headers: { 'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
+  });
   const json = await res.json();
 
   if (!res.ok || !json.success) {
