@@ -292,11 +292,12 @@ function openDetail(section, data) {
 
   const footer = document.getElementById('modal-footer');
   const isReadOnly = section === 'monstruos' || section === 'items_catalog';
-  const canDelete = !isReadOnly && data.notion_id && (isDM() || data.creado_por_jugador);
+  const canEdit = !isReadOnly && (isDM() || data.creado_por_jugador || section === 'notas_jugadores');
+  const canDelete = canEdit && data.notion_id;
   footer.innerHTML = `
     ${canDelete ? `<button class="btn btn-danger" onclick="deleteRecord('${section}','${data.notion_id}')" style="margin-right:auto">Eliminar</button>` : ''}
     <button class="btn" onclick="closeModal()">Cerrar</button>
-    ${(!isReadOnly && (isDM() || data.creado_por_jugador)) ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
+    ${canEdit ? `<button class="btn btn-success" onclick="switchToEdit()">✎ Editar</button>` : ''}
   `;
 
   document.getElementById('modal-overlay').classList.add('open');
@@ -1378,21 +1379,21 @@ const FORM_SCHEMAS = {
   ],
   notas_dm: [
     { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
-    { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'fecha',   label:'Fecha', type:'date' },
     { key:'jugadores_presentes', label:'Jugadores presentes', type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
     { key:'quests', label:'Quests relacionadas', type:'select-rel-multi', source:'quests' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
   notas_jugadores: [
     { key:'nombre',   label:'T\u00edtulo', type:'text', required:true },
-    { key:'fecha',    label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'fecha',    label:'Fecha', type:'date' },
     { key:'jugador',  label:'Jugador', type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
     { key:'items', label:'Items relacionados', type:'select-rel-multi', source:'items' },
     { key:'resumen',  label:'Resumen', type:'textarea' },
   ],
   notas: [
     { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
-    { key:'fecha',   label:'Fecha (YYYY-MM-DD)', type:'text' },
+    { key:'fecha',   label:'Fecha', type:'date' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
 };
