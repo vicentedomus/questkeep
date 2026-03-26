@@ -58,9 +58,25 @@ function buildCampaignContext() {
   if (pjs.length) {
     parts.push('## Party');
     pjs.forEach(p => {
-      parts.push(`- ${p.nombre} (${p.raza} ${p.clase}, nivel ${p.nivel || '?'}) — Jugador: ${p.jugador || '?'}` +
-        (p.hp_maximo ? ` | HP: ${p.hp_maximo}` : '') +
-        (p.ac ? ` | AC: ${p.ac}` : ''));
+      let line = `- ${p.nombre} (${p.raza} ${p.clase}, nivel ${p.nivel || '?'}) — Jugador: ${p.jugador || '?'}`;
+      line += (p.hp_maximo ? ` | HP: ${p.hp_maximo}` : '') + (p.ac ? ` | AC: ${p.ac}` : '');
+      // Enriquecer con datos de D&D Beyond si están disponibles
+      const ddb = p.ddb_data;
+      if (ddb) {
+        if (ddb.abilities) {
+          const abs = Object.entries(ddb.abilities).map(([k, v]) => `${k}:${v.total}(${v.mod >= 0 ? '+' : ''}${v.mod})`).join(', ');
+          line += ` | Stats: ${abs}`;
+        }
+        if (ddb.spells && ddb.spells.length) {
+          const spellNames = ddb.spells.map(s => s.name).join(', ');
+          line += `\n  Hechizos: ${spellNames}`;
+        }
+        if (ddb.equipment && ddb.equipment.length) {
+          const equipped = ddb.equipment.filter(e => e.equipped).map(e => e.name).join(', ');
+          if (equipped) line += `\n  Equipamiento: ${equipped}`;
+        }
+      }
+      parts.push(line);
     });
   }
 

@@ -774,14 +774,20 @@ function buildDetailHTML(section, data) {
       const p = data;
       const jugador = p.jugador ? (typeof p.jugador === 'object' ? p.jugador.nombre : p.jugador) : null;
       const ddbId = ddbExtractId(p.dndbeyond_url);
+      const sbId = p._sbid || '';
+      const syncedAt = p.ddb_synced_at ? new Date(p.ddb_synced_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null;
       const ddbSection = ddbId ? `
         <div class="detail-section" style="margin-top:12px">
           <div class="ddb-toggle-bar">
-            <button class="btn btn-sm ddb-toggle-btn" onclick="ddbToggleSheet(this, '${ddbId}')">
+            <button class="btn btn-sm ddb-toggle-btn" onclick="ddbToggleSheet(this, '${ddbId}', '${sbId}')">
               &#9862; Ver hoja D&D Beyond
+            </button>
+            <button class="btn btn-sm ddb-sync-btn" onclick="ddbManualSync('${ddbId}', '${sbId}', this)">
+              &#x21bb; Sincronizar
             </button>
             <a href="${escapeHtml(p.dndbeyond_url)}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:0.75rem">Abrir en D&D Beyond &#8599;</a>
           </div>
+          ${syncedAt ? `<div class="ddb-sync-status">Última sync: ${syncedAt}</div>` : ''}
           <div class="ddb-container" id="ddb-sheet-${ddbId}" style="display:none"></div>
         </div>` : '';
       return [
@@ -2892,7 +2898,7 @@ function generarInventario() {
 }
 
 // ── D&D BEYOND TOGGLE ─────────────────────────────────────────────
-function ddbToggleSheet(btn, characterId) {
+function ddbToggleSheet(btn, characterId, sbId) {
   const container = document.getElementById('ddb-sheet-' + characterId);
   if (!container) return;
   const isHidden = container.style.display === 'none';
@@ -2900,8 +2906,44 @@ function ddbToggleSheet(btn, characterId) {
   btn.innerHTML = isHidden ? '&#9862; Ocultar hoja D&D Beyond' : '&#9862; Ver hoja D&D Beyond';
   if (isHidden && !container.dataset.loaded) {
     container.dataset.loaded = '1';
-    ddbLoadAndShow(characterId, container);
+    ddbLoadAndShow(characterId, container, sbId || undefined);
   }
+}
+
+async function ddbManualSync(characterId, sbId, btn) {
+  if (!sbId) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '&#x21bb; Sincronizando...';
+  try {
+    // Limpiar cache para forzar fetch fresco
+    delete _ddbCache[characterId];
+    const char = await ddbFetchCharacter(characterId);
+    const ok = await ddbSyncToSupabase(sbId, char);
+    if (ok) {
+      btn.innerHTML = '&#x2713; Listo';
+      // Actualizar la hoja si está visible
+      const container = document.getElementById('ddb-sheet-' + characterId);
+      if (container && container.style.display !== 'none') {
+        container.innerHTML = ddbRenderSheet(char);
+        const ts = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        container.insertAdjacentHTML('beforeend',
+          `<div class="ddb-sync-status">Sincronizado a las ${ts}</div>`);
+      }
+      // Actualizar status en el toggle bar
+      const bar = btn.closest('.detail-section');
+      const oldStatus = bar?.querySelector('.ddb-sync-status');
+      const ts = new Date().toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      if (oldStatus) oldStatus.textContent = `Última sync: ${ts}`;
+      else if (bar) btn.closest('.ddb-toggle-bar')?.insertAdjacentHTML('afterend', `<div class="ddb-sync-status">Última sync: ${ts}</div>`);
+    } else {
+      btn.innerHTML = '&#x2717; Error';
+    }
+  } catch (e) {
+    console.error('ddbManualSync:', e);
+    btn.innerHTML = '&#x2717; Error';
+  }
+  setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
 }
 
 // ── RELOAD DATA ───────────────────────────────────────────────────

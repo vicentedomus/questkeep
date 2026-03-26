@@ -334,9 +334,54 @@ function ddbRenderSheet(char) {
   `;
 }
 
+// ── SYNC TO SUPABASE ──────────────────────────────────────────────────
+
+/**
+ * Guarda el snapshot de D&D Beyond en Supabase y actualiza campos básicos.
+ * @param {string} sbId – UUID del personaje en Supabase (_sbid)
+ * @param {object} char – objeto parseado de ddbParseCharacter()
+ * @returns {boolean} true si se guardó correctamente
+ */
+async function ddbSyncToSupabase(sbId, char) {
+  if (!sbId || !char) return false;
+
+  const mainClass = char.classes[0] || {};
+  const updates = {
+    ddb_data: char,
+    ddb_synced_at: new Date().toISOString(),
+    clase: mainClass.name || undefined,
+    subclase: mainClass.subclass || undefined,
+    raza: char.race || undefined,
+    nivel: char.totalLevel || undefined,
+    ac: char.ac || undefined,
+    hp_maximo: char.maxHP || undefined,
+  };
+
+  // Limpiar undefined
+  Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
+
+  const { error } = await sbClient.from('personajes').update(updates).eq('id', sbId);
+  if (error) {
+    console.error('ddbSyncToSupabase error:', error);
+    return false;
+  }
+
+  // Actualizar DATA.players en memoria
+  const local = (DATA.players || []).find(p => p._sbid === sbId);
+  if (local) Object.assign(local, updates);
+
+  return true;
+}
+
 // ── UI: LOAD & SHOW IN MODAL ─────────────────────────────────────────
 
-async function ddbLoadAndShow(characterId, containerEl) {
+/**
+ * Carga y renderiza la hoja D&D Beyond dentro de un contenedor.
+ * @param {string} characterId – ID numérico de D&D Beyond
+ * @param {HTMLElement} containerEl – elemento donde renderizar
+ * @param {string} [sbId] – UUID de Supabase para auto-sync
+ */
+async function ddbLoadAndShow(characterId, containerEl, sbId) {
   containerEl.innerHTML = `
     <div class="ddb-loading">
       <div class="spinner" style="width:24px;height:24px;border-width:3px;margin:0 auto"></div>
@@ -346,6 +391,16 @@ async function ddbLoadAndShow(characterId, containerEl) {
   try {
     const char = await ddbFetchCharacter(characterId);
     containerEl.innerHTML = ddbRenderSheet(char);
+
+    // Auto-sync a Supabase si tenemos el ID
+    if (sbId) {
+      const synced = await ddbSyncToSupabase(sbId, char);
+      if (synced) {
+        const ts = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        containerEl.insertAdjacentHTML('beforeend',
+          `<div class="ddb-sync-status">Sincronizado a las ${ts}</div>`);
+      }
+    }
   } catch (err) {
     containerEl.innerHTML = `
       <div class="ddb-error">
