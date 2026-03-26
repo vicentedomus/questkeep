@@ -1657,8 +1657,8 @@ async function saveModal() {
   const filename = FILE_MAP[tableKey] || `${tableKey}.json`;
   const action = (currentModalData && currentModalData.notion_id) ? 'edit' : 'add';
 
-  // Marcar registros creados por jugadores
-  if (action === 'add' && !isDM()) {
+  // Marcar registros creados por jugadores (solo tablas que tienen estas columnas)
+  if (action === 'add' && !isDM() && dataKey !== 'notas_jugadores') {
     newData.creado_por_jugador = true;
     newData.conocida_jugadores = true;
     newData.conocido_jugadores = true;
