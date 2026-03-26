@@ -1227,10 +1227,16 @@ async function commitItem(planId, bloqueKey, index) {
     const keyNorm = bloqueKey.replace('bloque_', '');
 
     if (keyNorm === 'npcs') {
+      const tiposValidos = ['Comerciante','Gremio','Religioso','Otro'];
+      const tipoRaw = item.tipo_npc || item.tipo || '';
+      const tipo = tiposValidos.includes(tipoRaw) ? tipoRaw : 'Otro';
+      const partes_pi = [item.motivacion && `Quiere: ${item.motivacion}`, item.tono && `Tono: ${item.tono}`].filter(Boolean);
+      const partes_rp = [item.rol && `Rol en sesión: ${item.rol}`, item.frase && `Frase: "${item.frase}"`].filter(Boolean);
       await sbSave('npcs', {
         nombre: item.nombre || item.name,
-        tipo_npc: item.rol || item.tipo || '',
-        primera_impresion: item.primera_impresion || item.descripcion || item.description || '',
+        tipo_npc: tipo,
+        primera_impresion: item.primera_impresion || item.descripcion || partes_pi.join('. ') || '',
+        notas_roleplay: item.notas_roleplay || partes_rp.join('. ') || '',
         raza: item.raza || '',
       }, 'add');
     } else if (keyNorm === 'locaciones') {
