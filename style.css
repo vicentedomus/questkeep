@@ -2834,6 +2834,56 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   color: #6db3f8; font-family: 'Cinzel', serif;
 }
 .ddb-toggle-btn:hover { background: rgba(26,107,191,0.3); }
+.ddb-sync-btn {
+  background: rgba(34,139,34,0.15); border: 1px solid rgba(34,139,34,0.4);
+  color: #6dca6d; font-family: 'Cinzel', serif;
+}
+.ddb-sync-btn:hover { background: rgba(34,139,34,0.3); }
+.ddb-sync-btn:disabled { opacity: 0.5; cursor: wait; }
+.ddb-sync-status {
+  font-size: 0.75rem; color: var(--text-dim); padding: 4px 0;
+}
+
+/* ── D&D Beyond card enrichments ── */
+.ddb-card-avatar {
+  width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--border-gold);
+  object-fit: cover; vertical-align: middle; margin-left: 8px;
+}
+.ddb-abilities-bar {
+  display: flex; gap: 4px; margin: 8px 0 4px; flex-wrap: wrap;
+}
+.ddb-ab {
+  display: flex; flex-direction: column; align-items: center;
+  background: rgba(0,0,0,0.25); border: 1px solid var(--border-gold-dark);
+  border-radius: 4px; padding: 3px 5px; min-width: 36px;
+}
+.ddb-ab-name {
+  font-size: 0.55rem; font-family: 'Cinzel', serif; color: var(--text-dim);
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.ddb-ab-mod {
+  font-size: 0.85rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;
+}
+.ddb-ab-score {
+  font-size: 0.6rem; color: var(--text-dim);
+}
+.ddb-hp-bar-card {
+  position: relative; height: 16px; background: rgba(0,0,0,0.3);
+  border-radius: 8px; overflow: hidden; margin: 6px 0;
+  border: 1px solid var(--border-gold-dark);
+}
+.ddb-hp-fill-card {
+  height: 100%; border-radius: 8px; transition: width 0.3s ease;
+}
+.ddb-hp-text-card {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 0.65rem; font-weight: 600;
+  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.ddb-spells-summary {
+  font-size: 0.72rem; color: #9b8adb; margin-top: 4px;
+}
+
 .ddb-container { margin-top: 8px; }
 .ddb-loading { text-align: center; padding: 24px 0; }
 .ddb-error {

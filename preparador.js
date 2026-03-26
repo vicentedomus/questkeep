@@ -694,7 +694,18 @@ async function generatePlan() {
   // Personajes: objeto completo desde DATA.players
   const personajesCompletos = prepSelectedPlayers.map(sel => {
     const p = (DATA.players || []).find(x => (x.notion_id || x.nombre) === sel.id) || {};
-    return { nombre: sel.nombre, raza: p.raza || '?', clase: p.clase || '?', nivel: p.nivel || '?', jugador: p.jugador || '?' };
+    const base = { nombre: sel.nombre, raza: p.raza || '?', clase: p.clase || '?', nivel: p.nivel || '?', jugador: p.jugador || '?' };
+    // Enriquecer con D&D Beyond si disponible
+    const ddb = p.ddb_data;
+    if (ddb) {
+      if (ddb.abilities) base.abilities = ddb.abilities;
+      if (ddb.ac) base.ac = ddb.ac;
+      if (ddb.maxHP) base.hp_max = ddb.maxHP;
+      if (ddb.profBonus) base.proficiency = ddb.profBonus;
+      if (ddb.spells?.length) base.hechizos = ddb.spells.map(s => ({ nombre: s.name, nivel: s.level }));
+      if (ddb.equipment?.length) base.equipamiento = ddb.equipment.filter(e => e.equipped).map(e => e.name);
+    }
+    return base;
   });
 
   // NPCs: objeto completo desde DATA.npcs

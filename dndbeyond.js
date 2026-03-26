@@ -37,14 +37,21 @@ async function ddbFetchCharacter(characterId) {
 function ddbParseCharacter(d) {
   const totalLevel = (d.classes || []).reduce((sum, c) => sum + (c.level || 0), 0);
 
-  // Ability scores: base + bonus + racial/feat modifiers
+  // Ability scores: base + bonus + modifiers from race/class/feat/item
+  const ABILITY_SUB = { 1:'strength-score', 2:'dexterity-score', 3:'constitution-score', 4:'intelligence-score', 5:'wisdom-score', 6:'charisma-score' };
+  const allMods = Object.values(d.modifiers || {}).flat();
+
   const abilities = {};
   for (const stat of (d.stats || [])) {
     const id = stat.id;
     const base = stat.value || 10;
     const bonus = ((d.bonusStats || []).find(s => s.id === id) || {}).value || 0;
     const override = ((d.overrideStats || []).find(s => s.id === id) || {}).value;
-    const total = override != null ? override : base + bonus;
+    // Sum all modifier bonuses for this ability (race, class, feat, item)
+    const modBonus = allMods
+      .filter(m => m.type === 'bonus' && m.subType === ABILITY_SUB[id])
+      .reduce((sum, m) => sum + (m.value || m.fixedValue || 0), 0);
+    const total = override != null ? override : base + bonus + modBonus;
     const mod = Math.floor((total - 10) / 2);
     abilities[ABILITY_NAMES[id]] = { total, mod };
   }
@@ -149,56 +156,79 @@ function ddbParseCharacter(d) {
 }
 
 function ddbComputeAC(d, abilities) {
-  // Simple fallback: look for AC override or compute from equipped armor
   if (d.armorClass != null) return d.armorClass;
 
   const dexMod = abilities.DEX ? abilities.DEX.mod : 0;
   let baseAC = 10 + dexMod; // unarmored default
+  let shieldBonus = 0;
 
+  // D&D Beyond armorTypeId: 1=Light, 2=Medium, 3=Heavy, 4=Shield
   for (const item of (d.inventory || [])) {
     if (!item.equipped || !item.definition) continue;
     const def = item.definition;
-    if (def.armorClass && def.armorTypeId) {
-      // It's armor
-      if (def.armorTypeId <= 3) {
-        // Light armor: AC + full DEX
-        baseAC = def.armorClass + dexMod;
-      } else if (def.armorTypeId <= 5) {
-        // Medium armor: AC + DEX (max 2)
-        baseAC = def.armorClass + Math.min(dexMod, 2);
-      } else {
-        // Heavy armor: AC only
-        baseAC = def.armorClass;
-      }
-    }
-    if (def.armorClass && !def.armorTypeId) {
+    if (!def.armorClass) continue;
+
+    if (def.armorTypeId === 4) {
       // Shield
-      baseAC += def.armorClass;
+      shieldBonus += def.armorClass;
+    } else if (def.armorTypeId === 1) {
+      // Light armor: AC + full DEX
+      baseAC = def.armorClass + dexMod;
+    } else if (def.armorTypeId === 2) {
+      // Medium armor: AC + DEX (max 2)
+      baseAC = def.armorClass + Math.min(dexMod, 2);
+    } else if (def.armorTypeId === 3) {
+      // Heavy armor: AC only
+      baseAC = def.armorClass;
     }
   }
+
+  // Add shield
+  baseAC += shieldBonus;
+
+  // Add AC bonuses from modifiers (feats like Heavily Armored, items, etc.)
+  const allMods = Object.values(d.modifiers || {}).flat();
+  const acBonus = allMods
+    .filter(m => m.type === 'bonus' && (m.subType === 'armored-armor-class' || m.subType === 'armor-class'))
+    .reduce((sum, m) => sum + (m.value || m.fixedValue || 0), 0);
+  baseAC += acBonus;
 
   return baseAC;
 }
 
 function ddbParseSpells(d) {
+  const seen = new Set();
   const all = [];
+
+  function addSpell(s, source) {
+    if (!s.definition) return;
+    const key = s.definition.name + '|' + s.definition.level;
+    if (seen.has(key)) return; // evitar duplicados entre spells y classSpells
+    seen.add(key);
+    all.push({
+      name: s.definition.name,
+      level: s.definition.level || 0,
+      school: s.definition.school || '',
+      prepared: s.prepared || s.alwaysPrepared || false,
+      concentration: s.definition.concentration || false,
+      ritual: s.definition.ritual || false,
+      source,
+    });
+  }
+
+  // spells.class/race/item/feat
   const spellSources = d.spells || {};
-  for (const source of ['class', 'race', 'item', 'feat']) {
+  for (const source of ['class', 'race', 'item', 'feat', 'background']) {
     const list = spellSources[source];
     if (!Array.isArray(list)) continue;
-    for (const s of list) {
-      if (!s.definition) continue;
-      all.push({
-        name: s.definition.name,
-        level: s.definition.level || 0,
-        school: s.definition.school || '',
-        prepared: s.prepared || false,
-        concentration: s.definition.concentration || false,
-        ritual: s.definition.ritual || false,
-        source,
-      });
-    }
+    for (const s of list) addSpell(s, source);
   }
+
+  // classSpells — fuente principal de hechizos de clase
+  for (const group of (d.classSpells || [])) {
+    for (const s of (group.spells || [])) addSpell(s, 'class');
+  }
+
   // Sort by level, then name
   all.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
   return all;
@@ -334,9 +364,54 @@ function ddbRenderSheet(char) {
   `;
 }
 
+// ── SYNC TO SUPABASE ──────────────────────────────────────────────────
+
+/**
+ * Guarda el snapshot de D&D Beyond en Supabase y actualiza campos básicos.
+ * @param {string} sbId – UUID del personaje en Supabase (_sbid)
+ * @param {object} char – objeto parseado de ddbParseCharacter()
+ * @returns {boolean} true si se guardó correctamente
+ */
+async function ddbSyncToSupabase(sbId, char) {
+  if (!sbId || !char) return false;
+
+  const mainClass = char.classes[0] || {};
+  const updates = {
+    ddb_data: char,
+    ddb_synced_at: new Date().toISOString(),
+    clase: mainClass.name || undefined,
+    subclase: mainClass.subclass || undefined,
+    raza: char.race || undefined,
+    nivel: char.totalLevel || undefined,
+    ac: char.ac || undefined,
+    hp_maximo: char.maxHP || undefined,
+  };
+
+  // Limpiar undefined
+  Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
+
+  const { error } = await sbClient.from('personajes').update(updates).eq('id', sbId);
+  if (error) {
+    console.error('ddbSyncToSupabase error:', error);
+    return false;
+  }
+
+  // Actualizar DATA.players en memoria
+  const local = (DATA.players || []).find(p => p._sbid === sbId);
+  if (local) Object.assign(local, updates);
+
+  return true;
+}
+
 // ── UI: LOAD & SHOW IN MODAL ─────────────────────────────────────────
 
-async function ddbLoadAndShow(characterId, containerEl) {
+/**
+ * Carga y renderiza la hoja D&D Beyond dentro de un contenedor.
+ * @param {string} characterId – ID numérico de D&D Beyond
+ * @param {HTMLElement} containerEl – elemento donde renderizar
+ * @param {string} [sbId] – UUID de Supabase para auto-sync
+ */
+async function ddbLoadAndShow(characterId, containerEl, sbId) {
   containerEl.innerHTML = `
     <div class="ddb-loading">
       <div class="spinner" style="width:24px;height:24px;border-width:3px;margin:0 auto"></div>
@@ -346,6 +421,16 @@ async function ddbLoadAndShow(characterId, containerEl) {
   try {
     const char = await ddbFetchCharacter(characterId);
     containerEl.innerHTML = ddbRenderSheet(char);
+
+    // Auto-sync a Supabase si tenemos el ID
+    if (sbId) {
+      const synced = await ddbSyncToSupabase(sbId, char);
+      if (synced) {
+        const ts = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        containerEl.insertAdjacentHTML('beforeend',
+          `<div class="ddb-sync-status">Sincronizado a las ${ts}</div>`);
+      }
+    }
   } catch (err) {
     containerEl.innerHTML = `
       <div class="ddb-error">

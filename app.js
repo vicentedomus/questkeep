@@ -774,14 +774,20 @@ function buildDetailHTML(section, data) {
       const p = data;
       const jugador = p.jugador ? (typeof p.jugador === 'object' ? p.jugador.nombre : p.jugador) : null;
       const ddbId = ddbExtractId(p.dndbeyond_url);
+      const sbId = p._sbid || '';
+      const syncedAt = p.ddb_synced_at ? new Date(p.ddb_synced_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null;
       const ddbSection = ddbId ? `
         <div class="detail-section" style="margin-top:12px">
           <div class="ddb-toggle-bar">
-            <button class="btn btn-sm ddb-toggle-btn" onclick="ddbToggleSheet(this, '${ddbId}')">
+            <button class="btn btn-sm ddb-toggle-btn" onclick="ddbToggleSheet(this, '${ddbId}', '${sbId}')">
               &#9862; Ver hoja D&D Beyond
+            </button>
+            <button class="btn btn-sm ddb-sync-btn" onclick="ddbManualSync('${ddbId}', '${sbId}', this)">
+              &#x21bb; Sincronizar
             </button>
             <a href="${escapeHtml(p.dndbeyond_url)}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:0.75rem">Abrir en D&D Beyond &#8599;</a>
           </div>
+          ${syncedAt ? `<div class="ddb-sync-status">Última sync: ${syncedAt}</div>` : ''}
           <div class="ddb-container" id="ddb-sheet-${ddbId}" style="display:none"></div>
         </div>` : '';
       return [
@@ -1027,12 +1033,39 @@ function renderPersonajes() {
     const jugadorStr = p.jugador ? `<span class="meta-item"><span class="meta-label">Jugador:</span> ${typeof p.jugador === 'object' ? escapeHtml(p.jugador.nombre) : escapeHtml(p.jugador)}</span>` : '';
     const subclaseStr = p.subclase ? `<span class="meta-item"><span class="meta-label">Subclase:</span> ${escapeHtml(p.subclase)}</span>` : '';
 
+    const ddb = p.ddb_data;
+
+    // Stats pills — enriquecidos con HP actual si hay D&D Beyond
     const stats = (isPJ && (p.nivel || p.ac || p.hp_maximo)) ? `
       <div class="stat-pills">
         ${p.nivel !== null ? `<div class="stat-pill"><span class="stat-pill-label">Nv</span><span class="stat-pill-value">${p.nivel}</span></div>` : ''}
         ${p.ac !== null ? `<div class="stat-pill"><span class="stat-pill-label">AC</span><span class="stat-pill-value">${p.ac}</span></div>` : ''}
-        ${p.hp_maximo !== null ? `<div class="stat-pill"><span class="stat-pill-label">HP</span><span class="stat-pill-value">${p.hp_maximo}</span></div>` : ''}
+        ${p.hp_maximo !== null ? `<div class="stat-pill"><span class="stat-pill-label">HP</span><span class="stat-pill-value">${ddb ? `${ddb.currentHP}/${ddb.maxHP}` : p.hp_maximo}</span></div>` : ''}
+        ${ddb && ddb.profBonus ? `<div class="stat-pill"><span class="stat-pill-label">Prof</span><span class="stat-pill-value">+${ddb.profBonus}</span></div>` : ''}
       </div>` : '';
+
+    // Ability scores mini-bar (solo si hay D&D Beyond)
+    const abilitiesBar = (isPJ && ddb && ddb.abilities) ? `
+      <div class="ddb-abilities-bar">
+        ${Object.entries(ddb.abilities).map(([k, v]) => `<div class="ddb-ab"><span class="ddb-ab-name">${k}</span><span class="ddb-ab-mod">${v.mod >= 0 ? '+' : ''}${v.mod}</span><span class="ddb-ab-score">${v.total}</span></div>`).join('')}
+      </div>` : '';
+
+    // HP bar (solo si hay D&D Beyond con HP actual)
+    const hpBar = (isPJ && ddb && ddb.maxHP) ? (() => {
+      const pct = Math.max(0, (ddb.currentHP / ddb.maxHP) * 100);
+      const color = pct > 60 ? 'var(--accent)' : pct > 30 ? '#d4a017' : '#8b0000';
+      return `<div class="ddb-hp-bar-card"><div class="ddb-hp-fill-card" style="width:${pct}%;background:${color}"></div><span class="ddb-hp-text-card">${ddb.currentHP}${ddb.tempHP ? `+${ddb.tempHP}` : ''} / ${ddb.maxHP}</span></div>`;
+    })() : '';
+
+    // Spells summary (cantrips + prepared count)
+    const spellsSummary = (isPJ && ddb && ddb.spells && ddb.spells.length) ? (() => {
+      const cantrips = ddb.spells.filter(s => s.level === 0);
+      const prepared = ddb.spells.filter(s => s.level > 0 && s.prepared);
+      const parts = [];
+      if (cantrips.length) parts.push(`${cantrips.length} cantrips`);
+      if (prepared.length) parts.push(`${prepared.length} preparados`);
+      return parts.length ? `<div class="ddb-spells-summary">&#10040; ${parts.join(', ')}</div>` : '';
+    })() : '';
 
     const itemsList = (p.items_magicos && p.items_magicos.length) ? `
       <div style="margin-top:10px">
@@ -1044,13 +1077,16 @@ function renderPersonajes() {
     <div class="${cardClass}" data-section="personajes" data-notion-id="${p.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${escapeHtml(p.nombre)}</div>
+          <div class="card-title">${escapeHtml(p.nombre)}${ddb && ddb.avatar ? `<img class="ddb-card-avatar" src="${ddb.avatar}" alt="">` : ''}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:3px;font-style:italic">${subtipo}</div>
         </div>
       </div>
       <div class="card-body">
         <div class="card-meta">${jugadorStr}${subclaseStr}</div>
         ${stats}
+        ${abilitiesBar}
+        ${hpBar}
+        ${spellsSummary}
         ${p.descripcion ? `<div class="card-desc">${escapeHtml(stripMentions(p.descripcion))}</div>` : ''}
         ${itemsList}
       </div>
@@ -2892,7 +2928,7 @@ function generarInventario() {
 }
 
 // ── D&D BEYOND TOGGLE ─────────────────────────────────────────────
-function ddbToggleSheet(btn, characterId) {
+function ddbToggleSheet(btn, characterId, sbId) {
   const container = document.getElementById('ddb-sheet-' + characterId);
   if (!container) return;
   const isHidden = container.style.display === 'none';
@@ -2900,8 +2936,73 @@ function ddbToggleSheet(btn, characterId) {
   btn.innerHTML = isHidden ? '&#9862; Ocultar hoja D&D Beyond' : '&#9862; Ver hoja D&D Beyond';
   if (isHidden && !container.dataset.loaded) {
     container.dataset.loaded = '1';
-    ddbLoadAndShow(characterId, container);
+    ddbLoadAndShow(characterId, container, sbId || undefined);
   }
+}
+
+async function ddbManualSync(characterId, sbId, btn) {
+  if (!sbId) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '&#x21bb; Sincronizando...';
+  try {
+    // Limpiar cache para forzar fetch fresco
+    delete _ddbCache[characterId];
+    const char = await ddbFetchCharacter(characterId);
+    const ok = await ddbSyncToSupabase(sbId, char);
+    if (ok) {
+      btn.innerHTML = '&#x2713; Listo';
+      // Actualizar la hoja si está visible
+      const container = document.getElementById('ddb-sheet-' + characterId);
+      if (container && container.style.display !== 'none') {
+        container.innerHTML = ddbRenderSheet(char);
+        const ts = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        container.insertAdjacentHTML('beforeend',
+          `<div class="ddb-sync-status">Sincronizado a las ${ts}</div>`);
+      }
+      // Actualizar status en el toggle bar
+      const bar = btn.closest('.detail-section');
+      const oldStatus = bar?.querySelector('.ddb-sync-status');
+      const ts = new Date().toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      if (oldStatus) oldStatus.textContent = `Última sync: ${ts}`;
+      else if (bar) btn.closest('.ddb-toggle-bar')?.insertAdjacentHTML('afterend', `<div class="ddb-sync-status">Última sync: ${ts}</div>`);
+    } else {
+      btn.innerHTML = '&#x2717; Error';
+    }
+  } catch (e) {
+    console.error('ddbManualSync:', e);
+    btn.innerHTML = '&#x2717; Error';
+  }
+  setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
+}
+
+// ── D&D BEYOND SYNC ALL ───────────────────────────────────────────
+async function ddbSyncAll(btn) {
+  const pjs = (DATA.players || []).filter(p => p.es_pj && p.dndbeyond_url);
+  if (!pjs.length) { alert('No hay PJs con URL de D&D Beyond configurada.'); return; }
+
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+
+  let ok = 0, fail = 0;
+  for (const p of pjs) {
+    const ddbId = ddbExtractId(p.dndbeyond_url);
+    if (!ddbId || !p._sbid) { fail++; continue; }
+    btn.innerHTML = `&#x21bb; ${ok + fail + 1}/${pjs.length}...`;
+    try {
+      delete _ddbCache[ddbId];
+      const char = await ddbFetchCharacter(ddbId);
+      const synced = await ddbSyncToSupabase(p._sbid, char);
+      synced ? ok++ : fail++;
+    } catch (e) {
+      console.error(`ddbSyncAll error (${p.nombre}):`, e);
+      fail++;
+    }
+  }
+
+  btn.innerHTML = fail ? `&#x2713; ${ok} OK, ${fail} error` : `&#x2713; ${ok} sincronizados`;
+  renderPersonajes();
+  setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
 }
 
 // ── RELOAD DATA ───────────────────────────────────────────────────
