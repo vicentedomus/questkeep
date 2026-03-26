@@ -1033,12 +1033,39 @@ function renderPersonajes() {
     const jugadorStr = p.jugador ? `<span class="meta-item"><span class="meta-label">Jugador:</span> ${typeof p.jugador === 'object' ? escapeHtml(p.jugador.nombre) : escapeHtml(p.jugador)}</span>` : '';
     const subclaseStr = p.subclase ? `<span class="meta-item"><span class="meta-label">Subclase:</span> ${escapeHtml(p.subclase)}</span>` : '';
 
+    const ddb = p.ddb_data;
+
+    // Stats pills — enriquecidos con HP actual si hay D&D Beyond
     const stats = (isPJ && (p.nivel || p.ac || p.hp_maximo)) ? `
       <div class="stat-pills">
         ${p.nivel !== null ? `<div class="stat-pill"><span class="stat-pill-label">Nv</span><span class="stat-pill-value">${p.nivel}</span></div>` : ''}
         ${p.ac !== null ? `<div class="stat-pill"><span class="stat-pill-label">AC</span><span class="stat-pill-value">${p.ac}</span></div>` : ''}
-        ${p.hp_maximo !== null ? `<div class="stat-pill"><span class="stat-pill-label">HP</span><span class="stat-pill-value">${p.hp_maximo}</span></div>` : ''}
+        ${p.hp_maximo !== null ? `<div class="stat-pill"><span class="stat-pill-label">HP</span><span class="stat-pill-value">${ddb ? `${ddb.currentHP}/${ddb.maxHP}` : p.hp_maximo}</span></div>` : ''}
+        ${ddb && ddb.profBonus ? `<div class="stat-pill"><span class="stat-pill-label">Prof</span><span class="stat-pill-value">+${ddb.profBonus}</span></div>` : ''}
       </div>` : '';
+
+    // Ability scores mini-bar (solo si hay D&D Beyond)
+    const abilitiesBar = (isPJ && ddb && ddb.abilities) ? `
+      <div class="ddb-abilities-bar">
+        ${Object.entries(ddb.abilities).map(([k, v]) => `<div class="ddb-ab"><span class="ddb-ab-name">${k}</span><span class="ddb-ab-mod">${v.mod >= 0 ? '+' : ''}${v.mod}</span><span class="ddb-ab-score">${v.total}</span></div>`).join('')}
+      </div>` : '';
+
+    // HP bar (solo si hay D&D Beyond con HP actual)
+    const hpBar = (isPJ && ddb && ddb.maxHP) ? (() => {
+      const pct = Math.max(0, (ddb.currentHP / ddb.maxHP) * 100);
+      const color = pct > 60 ? 'var(--accent)' : pct > 30 ? '#d4a017' : '#8b0000';
+      return `<div class="ddb-hp-bar-card"><div class="ddb-hp-fill-card" style="width:${pct}%;background:${color}"></div><span class="ddb-hp-text-card">${ddb.currentHP}${ddb.tempHP ? `+${ddb.tempHP}` : ''} / ${ddb.maxHP}</span></div>`;
+    })() : '';
+
+    // Spells summary (cantrips + prepared count)
+    const spellsSummary = (isPJ && ddb && ddb.spells && ddb.spells.length) ? (() => {
+      const cantrips = ddb.spells.filter(s => s.level === 0);
+      const prepared = ddb.spells.filter(s => s.level > 0 && s.prepared);
+      const parts = [];
+      if (cantrips.length) parts.push(`${cantrips.length} cantrips`);
+      if (prepared.length) parts.push(`${prepared.length} preparados`);
+      return parts.length ? `<div class="ddb-spells-summary">&#10040; ${parts.join(', ')}</div>` : '';
+    })() : '';
 
     const itemsList = (p.items_magicos && p.items_magicos.length) ? `
       <div style="margin-top:10px">
@@ -1050,13 +1077,16 @@ function renderPersonajes() {
     <div class="${cardClass}" data-section="personajes" data-notion-id="${p.notion_id || ''}" onclick="openDetailFromCard(this)" style="cursor:pointer">
       <div class="card-header">
         <div>
-          <div class="card-title">${escapeHtml(p.nombre)}</div>
+          <div class="card-title">${escapeHtml(p.nombre)}${ddb && ddb.avatar ? `<img class="ddb-card-avatar" src="${ddb.avatar}" alt="">` : ''}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:3px;font-style:italic">${subtipo}</div>
         </div>
       </div>
       <div class="card-body">
         <div class="card-meta">${jugadorStr}${subclaseStr}</div>
         ${stats}
+        ${abilitiesBar}
+        ${hpBar}
+        ${spellsSummary}
         ${p.descripcion ? `<div class="card-desc">${escapeHtml(stripMentions(p.descripcion))}</div>` : ''}
         ${itemsList}
       </div>
@@ -2944,6 +2974,35 @@ async function ddbManualSync(characterId, sbId, btn) {
     btn.innerHTML = '&#x2717; Error';
   }
   setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
+}
+
+// ── D&D BEYOND SYNC ALL ───────────────────────────────────────────
+async function ddbSyncAll(btn) {
+  const pjs = (DATA.players || []).filter(p => p.es_pj && p.dndbeyond_url);
+  if (!pjs.length) { alert('No hay PJs con URL de D&D Beyond configurada.'); return; }
+
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+
+  let ok = 0, fail = 0;
+  for (const p of pjs) {
+    const ddbId = ddbExtractId(p.dndbeyond_url);
+    if (!ddbId || !p._sbid) { fail++; continue; }
+    btn.innerHTML = `&#x21bb; ${ok + fail + 1}/${pjs.length}...`;
+    try {
+      delete _ddbCache[ddbId];
+      const char = await ddbFetchCharacter(ddbId);
+      const synced = await ddbSyncToSupabase(p._sbid, char);
+      synced ? ok++ : fail++;
+    } catch (e) {
+      console.error(`ddbSyncAll error (${p.nombre}):`, e);
+      fail++;
+    }
+  }
+
+  btn.innerHTML = fail ? `&#x2713; ${ok} OK, ${fail} error` : `&#x2713; ${ok} sincronizados`;
+  renderPersonajes();
+  setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
 }
 
 // ── RELOAD DATA ───────────────────────────────────────────────────

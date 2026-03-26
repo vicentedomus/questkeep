@@ -37,14 +37,21 @@ async function ddbFetchCharacter(characterId) {
 function ddbParseCharacter(d) {
   const totalLevel = (d.classes || []).reduce((sum, c) => sum + (c.level || 0), 0);
 
-  // Ability scores: base + bonus + racial/feat modifiers
+  // Ability scores: base + bonus + modifiers from race/class/feat/item
+  const ABILITY_SUB = { 1:'strength-score', 2:'dexterity-score', 3:'constitution-score', 4:'intelligence-score', 5:'wisdom-score', 6:'charisma-score' };
+  const allMods = Object.values(d.modifiers || {}).flat();
+
   const abilities = {};
   for (const stat of (d.stats || [])) {
     const id = stat.id;
     const base = stat.value || 10;
     const bonus = ((d.bonusStats || []).find(s => s.id === id) || {}).value || 0;
     const override = ((d.overrideStats || []).find(s => s.id === id) || {}).value;
-    const total = override != null ? override : base + bonus;
+    // Sum all modifier bonuses for this ability (race, class, feat, item)
+    const modBonus = allMods
+      .filter(m => m.type === 'bonus' && m.subType === ABILITY_SUB[id])
+      .reduce((sum, m) => sum + (m.value || m.fixedValue || 0), 0);
+    const total = override != null ? override : base + bonus + modBonus;
     const mod = Math.floor((total - 10) / 2);
     abilities[ABILITY_NAMES[id]] = { total, mod };
   }
@@ -149,56 +156,79 @@ function ddbParseCharacter(d) {
 }
 
 function ddbComputeAC(d, abilities) {
-  // Simple fallback: look for AC override or compute from equipped armor
   if (d.armorClass != null) return d.armorClass;
 
   const dexMod = abilities.DEX ? abilities.DEX.mod : 0;
   let baseAC = 10 + dexMod; // unarmored default
+  let shieldBonus = 0;
 
+  // D&D Beyond armorTypeId: 1=Light, 2=Medium, 3=Heavy, 4=Shield
   for (const item of (d.inventory || [])) {
     if (!item.equipped || !item.definition) continue;
     const def = item.definition;
-    if (def.armorClass && def.armorTypeId) {
-      // It's armor
-      if (def.armorTypeId <= 3) {
-        // Light armor: AC + full DEX
-        baseAC = def.armorClass + dexMod;
-      } else if (def.armorTypeId <= 5) {
-        // Medium armor: AC + DEX (max 2)
-        baseAC = def.armorClass + Math.min(dexMod, 2);
-      } else {
-        // Heavy armor: AC only
-        baseAC = def.armorClass;
-      }
-    }
-    if (def.armorClass && !def.armorTypeId) {
+    if (!def.armorClass) continue;
+
+    if (def.armorTypeId === 4) {
       // Shield
-      baseAC += def.armorClass;
+      shieldBonus += def.armorClass;
+    } else if (def.armorTypeId === 1) {
+      // Light armor: AC + full DEX
+      baseAC = def.armorClass + dexMod;
+    } else if (def.armorTypeId === 2) {
+      // Medium armor: AC + DEX (max 2)
+      baseAC = def.armorClass + Math.min(dexMod, 2);
+    } else if (def.armorTypeId === 3) {
+      // Heavy armor: AC only
+      baseAC = def.armorClass;
     }
   }
+
+  // Add shield
+  baseAC += shieldBonus;
+
+  // Add AC bonuses from modifiers (feats like Heavily Armored, items, etc.)
+  const allMods = Object.values(d.modifiers || {}).flat();
+  const acBonus = allMods
+    .filter(m => m.type === 'bonus' && (m.subType === 'armored-armor-class' || m.subType === 'armor-class'))
+    .reduce((sum, m) => sum + (m.value || m.fixedValue || 0), 0);
+  baseAC += acBonus;
 
   return baseAC;
 }
 
 function ddbParseSpells(d) {
+  const seen = new Set();
   const all = [];
+
+  function addSpell(s, source) {
+    if (!s.definition) return;
+    const key = s.definition.name + '|' + s.definition.level;
+    if (seen.has(key)) return; // evitar duplicados entre spells y classSpells
+    seen.add(key);
+    all.push({
+      name: s.definition.name,
+      level: s.definition.level || 0,
+      school: s.definition.school || '',
+      prepared: s.prepared || s.alwaysPrepared || false,
+      concentration: s.definition.concentration || false,
+      ritual: s.definition.ritual || false,
+      source,
+    });
+  }
+
+  // spells.class/race/item/feat
   const spellSources = d.spells || {};
-  for (const source of ['class', 'race', 'item', 'feat']) {
+  for (const source of ['class', 'race', 'item', 'feat', 'background']) {
     const list = spellSources[source];
     if (!Array.isArray(list)) continue;
-    for (const s of list) {
-      if (!s.definition) continue;
-      all.push({
-        name: s.definition.name,
-        level: s.definition.level || 0,
-        school: s.definition.school || '',
-        prepared: s.prepared || false,
-        concentration: s.definition.concentration || false,
-        ritual: s.definition.ritual || false,
-        source,
-      });
-    }
+    for (const s of list) addSpell(s, source);
   }
+
+  // classSpells — fuente principal de hechizos de clase
+  for (const group of (d.classSpells || [])) {
+    for (const s of (group.spells || [])) addSpell(s, 'class');
+  }
+
   // Sort by level, then name
   all.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
   return all;
