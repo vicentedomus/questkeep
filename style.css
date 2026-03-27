@@ -3027,12 +3027,18 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 /* ============================================================
    CAMPAÑA — Vista multi-columna
    ============================================================ */
-.campana-search-bar {
+.campana-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 0 0 12px 0;
 }
-.campana-search-bar .search-input {
-  width: 100%;
+.campana-toolbar .search-input {
+  flex: 1;
   max-width: 400px;
+}
+.campana-clear-btn {
+  white-space: nowrap;
 }
 
 .campana-columns {
@@ -3044,8 +3050,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .campana-col {
   flex: 1 1 0;
-  min-width: 200px;
-  max-width: 340px;
+  min-width: 180px;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3070,8 +3075,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   top: 0;
   z-index: 1;
 }
-.campana-col-icon { display: flex; align-items: center; color: var(--secondary); }
-.campana-col-title { flex: 1; }
+.campana-col-icon { display: flex; align-items: center; color: var(--secondary); flex-shrink: 0; }
+.campana-col-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .campana-col-count {
   background: var(--outline-variant);
   color: var(--on-surface-variant);
@@ -3129,6 +3134,89 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   font-size: 0.78rem;
   color: var(--text-dim);
   font-style: italic;
+}
+
+/* Cross-sort: elemento seleccionado */
+.campana-selected {
+  background: var(--secondary-container) !important;
+  border-left: 3px solid var(--primary);
+  padding-left: 7px;
+}
+
+/* Cross-sort: elementos relacionados */
+.campana-related {
+  background: rgba(255,226,171,0.08);
+  border-left: 3px solid var(--secondary);
+  padding-left: 7px;
+}
+/* Items no relacionados cuando hay selección activa se atenúan */
+.campana-mini:not(.campana-related):not(.campana-selected) {
+  /* solo atenuar si hay selección — se maneja con clase en el contenedor */
+}
+
+/* Drag & drop columnas */
+.campana-col-header {
+  cursor: grab;
+}
+.campana-col-header:active {
+  cursor: grabbing;
+}
+.campana-col-dragging {
+  opacity: 0.4;
+}
+.campana-col-over {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+}
+
+/* Filtros colapsables */
+.campana-filter-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+.campana-filter-btn:hover {
+  color: var(--primary);
+  border-color: var(--outline-variant);
+}
+.campana-filter-btn.campana-filter-active {
+  color: var(--primary);
+  background: rgba(255,226,171,0.1);
+}
+
+.campana-filter-panel {
+  display: none;
+  padding: 6px 8px;
+  background: var(--surface-container);
+  border-bottom: 1px solid var(--outline-variant);
+  gap: 4px;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.campana-filter-panel.open {
+  display: flex;
+}
+
+.campana-filter-select {
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.7rem;
+  background: var(--surface-high);
+  color: var(--on-surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  padding: 3px 6px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.campana-filter-select:focus {
+  outline: 1px solid var(--primary);
 }
 
 /* Responsive — columnas en móvil */

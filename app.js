@@ -1022,69 +1022,308 @@ function buildDetailHTML(section, data) {
 }
 
 // ── RENDER CAMPAÑA (multi-columna) ──────────────────────────────────
-function renderCampana() {
-  const searchVal = (document.getElementById('campana-search')?.value || '').toLowerCase().trim();
 
-  const colDefs = [
-    {
-      key: 'npcs', dataKey: 'npcs',
-      visFilter: n => isDM() || n.conocido_jugadores,
-      render: n => `<div class="campana-mini" data-section="npcs" data-notion-id="${n.notion_id}" onclick="openDetailFromCard(this)">
+// Estado persistente de la pestaña Campaña
+let campanaSelected = null;  // { section, notion_id }
+let campanaColOrder = null;  // ['npcs','ciudades',...] — se inicializa en primer render
+
+// Mapa de relaciones: dado un tipo+id, qué IDs de otras entidades están relacionados
+function campanaGetRelatedIds(section, notionId) {
+  const related = {}; // { npcs: Set, ciudades: Set, ... }
+  const id = notionId;
+
+  if (section === 'ciudades') {
+    related.npcs = new Set((DATA.npcs || []).filter(n => n.ciudad?.notion_id === id).map(n => n.notion_id));
+    related.establecimientos = new Set((DATA.establecimientos || []).filter(e => e.ciudad?.notion_id === id).map(e => e.notion_id));
+    related.lugares = new Set((DATA.lugares || []).filter(l => l.ciudad?.notion_id === id).map(l => l.notion_id));
+    related.quests = new Set((DATA.quests || []).filter(q => (q.ciudades || []).some(c => c.notion_id === id)).map(q => q.notion_id));
+    related.items = new Set();
+  } else if (section === 'npcs') {
+    const npc = (DATA.npcs || []).find(n => n.notion_id === id);
+    related.ciudades = new Set(npc?.ciudad ? [npc.ciudad.notion_id] : []);
+    related.establecimientos = new Set(npc?.establecimiento ? [npc.establecimiento.notion_id] : []);
+    related.lugares = new Set((npc?.lugares || []).map(l => l.notion_id));
+    related.quests = new Set((npc?.quests || []).map(q => q.notion_id));
+    related.items = new Set((npc?.items_magicos || []).map(i => i.notion_id));
+  } else if (section === 'establecimientos') {
+    const est = (DATA.establecimientos || []).find(e => e.notion_id === id);
+    related.ciudades = new Set(est?.ciudad ? [est.ciudad.notion_id] : []);
+    related.npcs = new Set(est?.dueno ? [est.dueno.notion_id] : []);
+    // También NPCs que están en este establecimiento
+    (DATA.npcs || []).forEach(n => { if (n.establecimiento?.notion_id === id) (related.npcs || (related.npcs = new Set())).add(n.notion_id); });
+    related.lugares = new Set();
+    related.quests = new Set((DATA.quests || []).filter(q => (q.establecimientos || []).some(e => e.notion_id === id)).map(q => q.notion_id));
+    related.items = new Set();
+  } else if (section === 'lugares') {
+    const lug = (DATA.lugares || []).find(l => l.notion_id === id);
+    related.ciudades = new Set(lug?.ciudad ? [lug.ciudad.notion_id] : []);
+    related.npcs = new Set((lug?.npcs || []).map(n => n.notion_id));
+    related.establecimientos = new Set();
+    related.quests = new Set((lug?.quests || []).map(q => q.notion_id));
+    related.items = new Set((lug?.items_magicos || []).map(i => i.notion_id));
+  } else if (section === 'quests') {
+    const q = (DATA.quests || []).find(q => q.notion_id === id);
+    related.npcs = new Set((q?.quest_npcs || []).map(n => n.notion_id));
+    related.ciudades = new Set((q?.ciudades || []).map(c => c.notion_id));
+    related.lugares = new Set((q?.lugares || []).map(l => l.notion_id));
+    related.establecimientos = new Set((q?.establecimientos || []).map(e => e.notion_id));
+    related.items = new Set();
+  } else if (section === 'items') {
+    const item = (DATA.items || []).find(i => i.notion_id === id);
+    related.npcs = new Set(item?.npc_portador ? [item.npc_portador.notion_id] : []);
+    related.ciudades = new Set();
+    related.lugares = new Set();
+    related.quests = new Set();
+    related.establecimientos = new Set();
+  }
+  return related;
+}
+
+function campanaSelectItem(section, notionId) {
+  // Toggle: si ya estaba seleccionado, deseleccionar
+  if (campanaSelected && campanaSelected.section === section && campanaSelected.notion_id === notionId) {
+    campanaSelected = null;
+  } else {
+    campanaSelected = { section, notion_id: notionId };
+  }
+  renderCampana();
+}
+
+// Columna drag & drop
+let campanaDragCol = null;
+
+function initCampanaDrag() {
+  const container = document.getElementById('campana-columns');
+  if (!container) return;
+
+  container.querySelectorAll('.campana-col').forEach(col => {
+    const header = col.querySelector('.campana-col-header');
+    header.setAttribute('draggable', 'true');
+
+    header.addEventListener('dragstart', (e) => {
+      campanaDragCol = col;
+      col.classList.add('campana-col-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    header.addEventListener('dragend', () => {
+      campanaDragCol = null;
+      col.classList.remove('campana-col-dragging');
+      container.querySelectorAll('.campana-col').forEach(c => c.classList.remove('campana-col-over'));
+    });
+
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!campanaDragCol || campanaDragCol === col) return;
+      e.dataTransfer.dropEffect = 'move';
+      col.classList.add('campana-col-over');
+    });
+
+    col.addEventListener('dragleave', () => {
+      col.classList.remove('campana-col-over');
+    });
+
+    col.addEventListener('drop', (e) => {
+      e.preventDefault();
+      col.classList.remove('campana-col-over');
+      if (!campanaDragCol || campanaDragCol === col) return;
+      // Reordenar en el DOM
+      const rect = col.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      if (e.clientX < midX) {
+        container.insertBefore(campanaDragCol, col);
+      } else {
+        container.insertBefore(campanaDragCol, col.nextSibling);
+      }
+      // Guardar orden
+      campanaColOrder = [...container.querySelectorAll('.campana-col')].map(c => c.dataset.col);
+      try { localStorage.setItem('campana_col_order', JSON.stringify(campanaColOrder)); } catch {}
+    });
+  });
+}
+
+// Restaurar orden de columnas desde localStorage
+function restoreCampanaColOrder() {
+  const container = document.getElementById('campana-columns');
+  if (!container) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem('campana_col_order'));
+    if (saved && Array.isArray(saved)) {
+      campanaColOrder = saved;
+      for (const key of saved) {
+        const col = container.querySelector(`.campana-col[data-col="${key}"]`);
+        if (col) container.appendChild(col);
+      }
+    }
+  } catch {}
+  if (!campanaColOrder) {
+    campanaColOrder = [...container.querySelectorAll('.campana-col')].map(c => c.dataset.col);
+  }
+}
+
+let campanaDragInited = false;
+
+const CAMPANA_COL_DEFS = [
+  {
+    key: 'npcs', dataKey: 'npcs',
+    visFilter: n => isDM() || n.conocido_jugadores,
+    renderMini: (n, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="npcs" data-notion-id="${n.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(n.nombre)}</div>
         <div class="campana-mini-meta">${rolBadge(n.rol)} ${n.ciudad ? `<span class="campana-mini-dim">${escapeHtml(n.ciudad.nombre)}</span>` : ''}</div>
-      </div>`,
-      searchFields: ['nombre','raza','tipo_npc','primera_impresion']
+      </div>`;
     },
-    {
-      key: 'ciudades', dataKey: 'ciudades',
-      visFilter: c => isDM() || c.conocida_jugadores,
-      render: c => `<div class="campana-mini" data-section="ciudades" data-notion-id="${c.notion_id}" onclick="openDetailFromCard(this)">
+    searchFields: ['nombre','raza','tipo_npc','primera_impresion'],
+    filters: [
+      { id: 'rol', label: 'Rol', values: () => [...new Set((DATA.npcs||[]).map(n=>n.rol).filter(Boolean))].sort(), match: (item,v) => item.rol === v },
+      { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.npcs||[]).map(n=>n.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
+    ]
+  },
+  {
+    key: 'ciudades', dataKey: 'ciudades',
+    visFilter: c => isDM() || c.conocida_jugadores,
+    renderMini: (c, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="ciudades" data-notion-id="${c.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(c.nombre)}</div>
         <div class="campana-mini-meta">${c.estado ? `<span class="campana-mini-dim">${escapeHtml(c.estado)}</span>` : ''}${c.poblacion ? `<span class="campana-mini-dim">Pob. ${c.poblacion.toLocaleString()}</span>` : ''}</div>
-      </div>`,
-      searchFields: ['nombre','estado','lider']
+      </div>`;
     },
-    {
-      key: 'lugares', dataKey: 'lugares',
-      visFilter: l => isDM() || l.conocido_jugadores || l.creado_por_jugador,
-      render: l => `<div class="campana-mini" data-section="lugares" data-notion-id="${l.notion_id}" onclick="openDetailFromCard(this)">
+    searchFields: ['nombre','estado','lider'],
+    filters: [
+      { id: 'estado', label: 'Reino', values: () => [...new Set((DATA.ciudades||[]).map(c=>c.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
+    ]
+  },
+  {
+    key: 'lugares', dataKey: 'lugares',
+    visFilter: l => isDM() || l.conocido_jugadores || l.creado_por_jugador,
+    renderMini: (l, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="lugares" data-notion-id="${l.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(l.nombre)}</div>
         <div class="campana-mini-meta">${l.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(l.tipo)}</span>` : ''}${l.region ? `<span class="campana-mini-dim">${escapeHtml(l.region)}</span>` : ''}</div>
-      </div>`,
-      searchFields: ['nombre','tipo','region']
+      </div>`;
     },
-    {
-      key: 'quests', dataKey: 'quests',
-      visFilter: q => isDM() || q.conocido_jugadores,
-      render: q => `<div class="campana-mini" data-section="quests" data-notion-id="${q.notion_id}" onclick="openDetailFromCard(this)">
+    searchFields: ['nombre','tipo','region'],
+    filters: [
+      { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.lugares||[]).map(l=>l.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
+    ]
+  },
+  {
+    key: 'quests', dataKey: 'quests',
+    visFilter: q => isDM() || q.conocido_jugadores,
+    renderMini: (q, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="quests" data-notion-id="${q.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(q.nombre)}</div>
         <div class="campana-mini-meta">${estadoQuestBadge(q.estado)}</div>
-      </div>`,
-      searchFields: ['nombre','resumen']
+      </div>`;
     },
-    {
-      key: 'items', dataKey: 'items',
-      visFilter: i => isDM() || i.personaje !== null,
-      render: i => `<div class="campana-mini" data-section="items" data-notion-id="${i.notion_id}" onclick="openDetailFromCard(this)">
+    searchFields: ['nombre','resumen'],
+    filters: [
+      { id: 'estado', label: 'Estado', values: () => [...new Set((DATA.quests||[]).map(q=>q.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
+    ]
+  },
+  {
+    key: 'items', dataKey: 'items',
+    visFilter: i => isDM() || i.personaje !== null,
+    renderMini: (i, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="items" data-notion-id="${i.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(i.nombre)}</div>
         <div class="campana-mini-meta">${i.rareza ? rarezaBadge(i.rareza) : ''}${i.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(i.tipo)}</span>` : ''}</div>
-      </div>`,
-      searchFields: ['nombre','tipo','rareza']
+      </div>`;
     },
-    {
-      key: 'establecimientos', dataKey: 'establecimientos',
-      visFilter: e => isDM() || e.conocido_jugadores,
-      render: e => `<div class="campana-mini" data-section="establecimientos" data-notion-id="${e.notion_id}" onclick="openDetailFromCard(this)">
+    searchFields: ['nombre','tipo','rareza'],
+    filters: [
+      { id: 'rareza', label: 'Rareza', values: () => [...new Set((DATA.items||[]).map(i=>i.rareza).filter(Boolean))].sort(), match: (item,v) => item.rareza === v },
+      { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.items||[]).map(i=>i.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
+    ]
+  },
+  {
+    key: 'establecimientos', dataKey: 'establecimientos',
+    visFilter: e => isDM() || e.conocido_jugadores,
+    renderMini: (e, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="establecimientos" data-notion-id="${e.notion_id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-name">${escapeHtml(e.nombre)}</div>
         <div class="campana-mini-meta">${e.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(e.tipo)}</span>` : ''}${e.ciudad ? `<span class="campana-mini-dim">${escapeHtml(e.ciudad.nombre)}</span>` : ''}</div>
-      </div>`,
-      searchFields: ['nombre','tipo']
-    }
-  ];
+      </div>`;
+    },
+    searchFields: ['nombre','tipo'],
+    filters: [
+      { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
+      { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
+    ]
+  }
+];
 
-  for (const col of colDefs) {
+// Estado de filtros por columna: { npcs: { rol: 'Aliado' }, ... }
+const campanaFilters = {};
+
+function campanaToggleFilter(colKey) {
+  const panel = document.getElementById(`campana-filter-panel-${colKey}`);
+  if (!panel) return;
+  const isOpen = panel.classList.toggle('open');
+  // Cerrar otros paneles
+  if (isOpen) {
+    document.querySelectorAll('.campana-filter-panel.open').forEach(p => {
+      if (p !== panel) p.classList.remove('open');
+    });
+  }
+}
+
+function campanaSetFilter(colKey, filterId, value) {
+  if (!campanaFilters[colKey]) campanaFilters[colKey] = {};
+  if (value) {
+    campanaFilters[colKey][filterId] = value;
+  } else {
+    delete campanaFilters[colKey][filterId];
+  }
+  renderCampana();
+}
+
+// Track último clic por notion_id (no por elemento DOM, que se re-crea en cada render)
+let _campanaLastClickId = null;
+let _campanaLastClickTime = 0;
+
+function campanaClickMini(el, event) {
+  const section = el.dataset.section;
+  const notionId = el.dataset.notionId;
+  const now = Date.now();
+  // Doble clic abre detalle
+  if (_campanaLastClickId === notionId && now - _campanaLastClickTime < 500) {
+    _campanaLastClickId = null;
+    openDetailFromCard(el);
+    return;
+  }
+  _campanaLastClickId = notionId;
+  _campanaLastClickTime = now;
+  campanaSelectItem(section, notionId);
+}
+
+function renderCampana() {
+  const searchVal = (document.getElementById('campana-search')?.value || '').toLowerCase().trim();
+  const relatedIds = campanaSelected ? campanaGetRelatedIds(campanaSelected.section, campanaSelected.notion_id) : null;
+
+  for (const col of CAMPANA_COL_DEFS) {
     let items = DATA[col.dataKey] || [];
     items = items.filter(col.visFilter);
+
+    // Aplicar búsqueda global
     if (searchVal) {
       items = items.filter(item =>
         col.searchFields.some(f => {
@@ -1093,14 +1332,81 @@ function renderCampana() {
         })
       );
     }
+
+    // Aplicar filtros de columna
+    const colFilters = campanaFilters[col.key] || {};
+    for (const [filterId, filterVal] of Object.entries(colFilters)) {
+      const filterDef = col.filters.find(f => f.id === filterId);
+      if (filterDef && filterVal) {
+        items = items.filter(item => filterDef.match(item, filterVal));
+      }
+    }
+
+    // Cross-sort: seleccionado primero en su columna, relacionados primero en las demás
+    if (campanaSelected) {
+      if (col.key === campanaSelected.section) {
+        // En la propia columna: el seleccionado va primero
+        items.sort((a, b) => {
+          const aS = a.notion_id === campanaSelected.notion_id ? 0 : 1;
+          const bS = b.notion_id === campanaSelected.notion_id ? 0 : 1;
+          return aS - bS;
+        });
+      } else if (relatedIds && relatedIds[col.key]) {
+        // En otras columnas: relacionados primero
+        const relSet = relatedIds[col.key];
+        items.sort((a, b) => {
+          const aRel = relSet.has(a.notion_id) ? 0 : 1;
+          const bRel = relSet.has(b.notion_id) ? 0 : 1;
+          return aRel - bRel;
+        });
+      }
+    }
+
+    // Render filtros en header
+    const filterBtn = document.getElementById(`campana-filter-btn-${col.key}`);
+    const filterPanel = document.getElementById(`campana-filter-panel-${col.key}`);
+    if (filterBtn && filterPanel) {
+      filterPanel.innerHTML = col.filters.map(f => {
+        const vals = f.values();
+        if (!vals.length) return '';
+        const current = colFilters[f.id] || '';
+        return `<select class="campana-filter-select" onchange="campanaSetFilter('${col.key}','${f.id}',this.value)">
+          <option value="">${escapeHtml(f.label)}</option>
+          ${vals.map(v => `<option value="${escapeHtml(v)}"${v === current ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('')}
+        </select>`;
+      }).join('');
+      const activeCount = Object.keys(colFilters).length;
+      filterBtn.classList.toggle('campana-filter-active', activeCount > 0);
+    }
+
+    // Contadores
     const countEl = document.getElementById(`campana-count-${col.key}`);
     if (countEl) countEl.textContent = items.length;
+
+    // Render items
     const listEl = document.getElementById(`campana-list-${col.key}`);
     if (listEl) {
-      listEl.innerHTML = items.length
-        ? items.map(col.render).join('')
-        : `<div class="campana-empty">Sin registros</div>`;
+      if (!items.length) {
+        listEl.innerHTML = `<div class="campana-empty">Sin registros</div>`;
+      } else {
+        listEl.innerHTML = items.map(item => {
+          const isSelected = campanaSelected && campanaSelected.section === col.key && campanaSelected.notion_id === item.notion_id;
+          const isRelated = relatedIds && relatedIds[col.key] && relatedIds[col.key].has(item.notion_id);
+          return col.renderMini(item, isRelated, isSelected);
+        }).join('');
+      }
     }
+  }
+
+  // Mostrar/ocultar botón limpiar selección
+  const clearBtn = document.getElementById('campana-clear-sel');
+  if (clearBtn) clearBtn.style.display = campanaSelected ? '' : 'none';
+
+  // Init drag solo una vez
+  if (!campanaDragInited) {
+    restoreCampanaColOrder();
+    initCampanaDrag();
+    campanaDragInited = true;
   }
 }
 
