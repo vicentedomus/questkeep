@@ -1181,11 +1181,13 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="npcs" data-notion-id="${n.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(n.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(n.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${rolBadge(n.rol)} ${n.ciudad ? `<span class="campana-mini-dim">${escapeHtml(n.ciudad.nombre)}</span>` : ''}</div>
       </div>`;
     },
-    searchFields: ['nombre','raza','tipo_npc','primera_impresion'],
+    searchFields: ['nombre','raza','tipo_npc','primera_impresion','rol'],
+    searchRelFields: ['ciudad','establecimiento'],
+    searchRelMultiFields: ['quests','items_magicos','lugares'],
     filters: [
       { id: 'rol', label: 'Rol', values: () => [...new Set((DATA.npcs||[]).map(n=>n.rol).filter(Boolean))].sort(), match: (item,v) => item.rol === v },
       { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.npcs||[]).map(n=>n.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
@@ -1199,11 +1201,11 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="ciudades" data-notion-id="${c.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(c.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(c.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${c.estado ? `<span class="campana-mini-dim">${escapeHtml(c.estado)}</span>` : ''}${c.poblacion ? `<span class="campana-mini-dim">Pob. ${c.poblacion.toLocaleString()}</span>` : ''}</div>
       </div>`;
     },
-    searchFields: ['nombre','estado','lider'],
+    searchFields: ['nombre','estado','lider','region'],
     filters: [
       { id: 'estado', label: 'Reino', values: () => [...new Set((DATA.ciudades||[]).map(c=>c.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
     ]
@@ -1216,11 +1218,13 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="lugares" data-notion-id="${l.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(l.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(l.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${l.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(l.tipo)}</span>` : ''}${l.region ? `<span class="campana-mini-dim">${escapeHtml(l.region)}</span>` : ''}</div>
       </div>`;
     },
     searchFields: ['nombre','tipo','region'],
+    searchRelFields: ['ciudad'],
+    searchRelMultiFields: ['npcs','quests','items_magicos'],
     filters: [
       { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.lugares||[]).map(l=>l.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
     ]
@@ -1233,11 +1237,12 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="quests" data-notion-id="${q.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(q.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(q.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${estadoQuestBadge(q.estado)}</div>
       </div>`;
     },
-    searchFields: ['nombre','resumen'],
+    searchFields: ['nombre','resumen','estado'],
+    searchRelMultiFields: ['quest_npcs','ciudades','lugares','establecimientos'],
     filters: [
       { id: 'estado', label: 'Estado', values: () => [...new Set((DATA.quests||[]).map(q=>q.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
     ]
@@ -1250,11 +1255,12 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="items" data-notion-id="${i.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(i.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(i.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${i.rareza ? rarezaBadge(i.rareza) : ''}${i.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(i.tipo)}</span>` : ''}</div>
       </div>`;
     },
     searchFields: ['nombre','tipo','rareza'],
+    searchRelFields: ['npc_portador'],
     filters: [
       { id: 'rareza', label: 'Rareza', values: () => [...new Set((DATA.items||[]).map(i=>i.rareza).filter(Boolean))].sort(), match: (item,v) => item.rareza === v },
       { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.items||[]).map(i=>i.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
@@ -1268,11 +1274,13 @@ const CAMPANA_COL_DEFS = [
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="establecimientos" data-notion-id="${e.notion_id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-name">${escapeHtml(e.nombre)}</div>
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(e.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
         <div class="campana-mini-meta">${e.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(e.tipo)}</span>` : ''}${e.ciudad ? `<span class="campana-mini-dim">${escapeHtml(e.ciudad.nombre)}</span>` : ''}</div>
       </div>`;
     },
     searchFields: ['nombre','tipo'],
+    searchRelFields: ['ciudad','dueno'],
+    searchRelMultiFields: ['quests'],
     filters: [
       { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
       { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
@@ -1397,23 +1405,16 @@ function campanaSetFilter(colKey, filterId, value) {
   renderCampana();
 }
 
-// Track último clic por notion_id (no por elemento DOM, que se re-crea en cada render)
-let _campanaLastClickId = null;
-let _campanaLastClickTime = 0;
-
 function campanaClickMini(el, event) {
   const section = el.dataset.section;
   const notionId = el.dataset.notionId;
-  const now = Date.now();
-  // Doble clic abre detalle
-  if (_campanaLastClickId === notionId && now - _campanaLastClickTime < 500) {
-    _campanaLastClickId = null;
-    openDetailFromCard(el);
-    return;
-  }
-  _campanaLastClickId = notionId;
-  _campanaLastClickTime = now;
   campanaSelectItem(section, notionId);
+}
+
+function campanaOpenDetail(btn, event) {
+  event.stopPropagation();
+  const card = btn.closest('.campana-mini');
+  if (card) openDetailFromCard(card);
 }
 
 function renderCampana() {
@@ -1433,14 +1434,30 @@ function renderCampana() {
     let items = DATA[col.dataKey] || [];
     items = items.filter(col.visFilter);
 
-    // Aplicar búsqueda global
+    // Aplicar búsqueda global (campos directos + relaciones)
     if (searchVal) {
-      items = items.filter(item =>
-        col.searchFields.some(f => {
+      items = items.filter(item => {
+        // Campos de texto directo
+        if (col.searchFields.some(f => {
           const v = item[f];
           return v && String(v).toLowerCase().includes(searchVal);
-        })
-      );
+        })) return true;
+        // Relaciones simples (objeto con .nombre)
+        if (col.searchRelFields) {
+          if (col.searchRelFields.some(f => {
+            const rel = item[f];
+            return rel && rel.nombre && rel.nombre.toLowerCase().includes(searchVal);
+          })) return true;
+        }
+        // Relaciones múltiples (array de objetos con .nombre)
+        if (col.searchRelMultiFields) {
+          if (col.searchRelMultiFields.some(f => {
+            const arr = item[f];
+            return Array.isArray(arr) && arr.some(r => r.nombre && r.nombre.toLowerCase().includes(searchVal));
+          })) return true;
+        }
+        return false;
+      });
     }
 
     // Aplicar filtros de columna
