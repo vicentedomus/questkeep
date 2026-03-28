@@ -61,7 +61,17 @@ function ddbParseCharacter(d) {
   const baseHP = d.baseHitPoints || 0;
   const bonusHP = d.bonusHitPoints || 0;
   const overrideHP = d.overrideHitPoints;
-  const maxHP = overrideHP != null ? overrideHP : baseHP + bonusHP + (conMod * totalLevel);
+  // Detect Tough feat (+2 HP per level) — not exposed as modifier in DDB API
+  const allFeats = [
+    ...((d.background?.definition?.grantedFeats) || []),
+    ...((d.feats) || []),
+    ...((d.options?.feat) || []),
+  ];
+  const hasTough = allFeats.some(f =>
+    (f.name || f.definition?.name || '').toLowerCase() === 'tough'
+  );
+  const toughHP = hasTough ? 2 * totalLevel : 0;
+  const maxHP = overrideHP != null ? overrideHP : baseHP + bonusHP + (conMod * totalLevel) + toughHP;
   const currentHP = maxHP - (d.removedHitPoints || 0);
   const tempHP = d.temporaryHitPoints || 0;
 
