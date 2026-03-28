@@ -2663,8 +2663,11 @@ async function saveModal() {
 }
 
 // ── MAP ───────────────────────────────────────────────────────────
+// ViewBox original del SVG
 const VB_W0 = 1271, VB_H0 = 872;
-let vbX = 0, vbY = 0, vbW = VB_W0, vbH = VB_H0;
+// ViewBox recortado a la tierra (con padding)
+const LAND_X = 530, LAND_Y = 340, LAND_W = 300, LAND_H = 250;
+let vbX = LAND_X, vbY = LAND_Y, vbW = LAND_W, vbH = LAND_H;
 let mapDragging = false, mapLastX = 0, mapLastY = 0;
 let mapSvgEl = null;
 let mapLoaded = false;
@@ -2723,6 +2726,7 @@ const MAP_LAYER_GROUPS = [
   { label: 'Reinos',      ids: ['regions'],                 on: false, legend: 'regions' },
   { label: 'Fronteras',   ids: ['borders'],                 on: false },
   { label: 'Culturas',    ids: ['cults'],                   on: false, legend: 'cults' },
+  { label: 'Niebla',      ids: ['fogOfWar'],                on: true,  dmOnly: true },
 ];
 
 function injectGridPattern(svgEl) {
@@ -2760,7 +2764,7 @@ async function renderMapa() {
     viewport.appendChild(svgEl);
     mapSvgEl = viewport.querySelector('svg');
     if (!mapSvgEl) return;
-    mapSvgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    mapSvgEl.setAttribute('preserveAspectRatio', 'xMidYMid slice');
 
     // --- Capas base: siempre visibles (no toggleables) ---
     const landmassEl = mapSvgEl.querySelector('#landmass');
@@ -2816,12 +2820,19 @@ async function renderMapa() {
     // --- Inyectar patrón hex del grid (FMG no lo exporta en el SVG) ---
     injectGridPattern(mapSvgEl);
 
+    // --- Fog of War ---
+    initFogLayer();
+
+    // --- Hex Tooltip ---
+    initHexTooltip();
+
     renderMapLayerPanel();
     initMapZoomPan(viewport);
     initMapCityLinks();
     initMapMarkerDrop();
     renderMapMarkers();
     initMapToLegendHighlight();
+    initFogBrushTools();
     mapLoaded = true;
   } catch(e) {
     viewport.innerHTML = `<div style="padding:40px;color:var(--text-dim);font-family:'Cinzel',serif;text-align:center">Error al cargar el mapa: ${e.message}</div>`;
@@ -2831,14 +2842,17 @@ async function renderMapa() {
 function renderMapLayerPanel() {
   const panel = document.getElementById('map-layer-panel');
   if (!panel) return;
+  const dm = isDM();
   panel.innerHTML = `
     <div class="map-panel-title">Capas</div>
-    ${MAP_LAYER_GROUPS.map((g, i) => `
+    ${MAP_LAYER_GROUPS.filter(g => !g.dmOnly || dm).map((g, i) => {
+      const realIdx = MAP_LAYER_GROUPS.indexOf(g);
+      return `
       <label class="map-layer-row">
-        <input type="checkbox" ${g.on ? 'checked' : ''} onchange="toggleMapLayer(${i}, this.checked)">
+        <input type="checkbox" ${g.on ? 'checked' : ''} onchange="toggleMapLayer(${realIdx}, this.checked)">
         <span>${g.label}</span>
-      </label>
-    `).join('')}
+      </label>`;
+    }).join('')}
   `;
   MAP_LAYER_GROUPS.forEach((g, i) => toggleMapLayer(i, g.on));
 }
@@ -2847,10 +2861,16 @@ function toggleMapLayer(groupIdx, visible) {
   const g = MAP_LAYER_GROUPS[groupIdx];
   if (g) g.on = visible;
   if (!mapSvgEl) return;
-  (g ? g.ids : []).forEach(id => {
-    const el = mapSvgEl.querySelector('#' + id);
-    if (el) el.style.display = visible ? '' : 'none';
-  });
+
+  // Fog tiene su propia funcion de toggle
+  if (g && g.ids.includes('fogOfWar')) {
+    toggleFog(visible);
+  } else {
+    (g ? g.ids : []).forEach(id => {
+      const el = mapSvgEl.querySelector('#' + id);
+      if (el) el.style.display = visible ? '' : 'none';
+    });
+  }
   renderMapLegend();
 }
 
@@ -2977,8 +2997,8 @@ function initMapZoomPan(viewport) {
     const ratioY = (e.clientY - rect.top)   / rect.height;
     const svgCX = vbX + ratioX * vbW;
     const svgCY = vbY + ratioY * vbH;
-    vbW = Math.max(60, Math.min(VB_W0 * 3, vbW * factor));
-    vbH = vbW * (VB_H0 / VB_W0);
+    vbW = Math.max(20, Math.min(LAND_W * 2, vbW * factor));
+    vbH = vbW * (LAND_H / LAND_W);
     vbX = svgCX - ratioX * vbW;
     vbY = svgCY - ratioY * vbH;
     applyMapViewBox();
@@ -2987,6 +3007,7 @@ function initMapZoomPan(viewport) {
   // Drag con mouse
   viewport.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
+    if (hexDebugMode) return; // No pan cuando modo brocha activo
     mapDragging = true;
     mapLastX = e.clientX;
     mapLastY = e.clientY;
@@ -3070,7 +3091,7 @@ function mapZoom(factor) {
 }
 
 function mapZoomReset() {
-  vbX = 0; vbY = 0; vbW = VB_W0; vbH = VB_H0;
+  vbX = LAND_X; vbY = LAND_Y; vbW = LAND_W; vbH = LAND_H;
   applyMapViewBox();
 }
 
@@ -3147,6 +3168,15 @@ function toggleMarkerMode() {
 }
 
 function screenToSvg(clientX, clientY) {
+  const pt = mapSvgEl.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = mapSvgEl.getScreenCTM();
+  if (ctm) {
+    const svgPt = pt.matrixTransform(ctm.inverse());
+    return { x: svgPt.x, y: svgPt.y };
+  }
+  // Fallback si getScreenCTM no disponible
   const rect = mapSvgEl.getBoundingClientRect();
   return {
     x: vbX + (clientX - rect.left) / rect.width * vbW,
@@ -3533,5 +3563,840 @@ async function recargarDatos() {
     alert('Error al recargar: ' + e.message);
   } finally {
     spinner.classList.remove('open');
+  }
+}
+
+// =====================================================================
+// FOG OF WAR — Fase 2 Hexplorer
+// Capa de niebla hexagonal: hexes no revelados se cubren con fog negro.
+// Estrategia: rect negro con mask SVG. Solo se dibujan hexes revelados
+// (poligonos blancos en la mascara), no los ocultos (~26k hexes).
+// =====================================================================
+
+// Estado del fog: { "q,r": { revealed: bool, discovered: bool } }
+// revealed = visible en el mapa (fog removido)
+// discovered = un explorador ha pasado por ahi (puede tener actividades)
+let FOG_DATA = {};
+let fogEnabled = true;
+const FOG_STORAGE_KEY = 'halo_fog_data';
+
+function loadFogData() {
+  try {
+    const stored = localStorage.getItem(FOG_STORAGE_KEY);
+    if (stored) FOG_DATA = JSON.parse(stored);
+  } catch (e) {
+    console.warn('[Fog] Error loading fog data:', e);
+  }
+}
+
+function saveFogData() {
+  try {
+    localStorage.setItem(FOG_STORAGE_KEY, JSON.stringify(FOG_DATA));
+  } catch (e) {
+    console.warn('[Fog] Error saving fog data:', e);
+  }
+}
+
+function isHexRevealed(q, r) {
+  const key = HexGrid.hexKey(q, r);
+  return FOG_DATA[key] && FOG_DATA[key].revealed;
+}
+
+function isHexDiscovered(q, r) {
+  const key = HexGrid.hexKey(q, r);
+  return FOG_DATA[key] && FOG_DATA[key].discovered;
+}
+
+function markHexDiscovered(q, r) {
+  const key = HexGrid.hexKey(q, r);
+  if (!FOG_DATA[key]) FOG_DATA[key] = {};
+  FOG_DATA[key].discovered = true;
+}
+
+function getHexNote(q, r) {
+  const key = HexGrid.hexKey(q, r);
+  return (FOG_DATA[key] && FOG_DATA[key].note) || '';
+}
+
+function setHexNote(q, r, note) {
+  const key = HexGrid.hexKey(q, r);
+  if (!FOG_DATA[key]) FOG_DATA[key] = {};
+  if (note) {
+    FOG_DATA[key].note = note;
+  } else {
+    delete FOG_DATA[key].note;
+  }
+  saveFogData();
+}
+
+function revealHex(q, r, save = true) {
+  const key = HexGrid.hexKey(q, r);
+  if (!FOG_DATA[key]) FOG_DATA[key] = {};
+  FOG_DATA[key].revealed = true;
+  if (save) saveFogData();
+}
+
+function hideHex(q, r, save = true) {
+  const key = HexGrid.hexKey(q, r);
+  if (FOG_DATA[key]) {
+    FOG_DATA[key].revealed = false;
+    if (!FOG_DATA[key].discovered) delete FOG_DATA[key];
+  }
+  if (save) saveFogData();
+}
+
+function revealHexes(hexList) {
+  hexList.forEach(h => revealHex(h.q, h.r, false));
+  saveFogData();
+  renderFog();
+}
+
+function hideHexes(hexList) {
+  hexList.forEach(h => hideHex(h.q, h.r, false));
+  saveFogData();
+  renderFog();
+}
+
+/**
+ * Inicializa la capa de fog en el SVG.
+ * Crea un <rect> negro con mask, posicionado sobre el contenido del mapa.
+ */
+function initFogLayer() {
+  if (!mapSvgEl || typeof HexGrid === 'undefined') return;
+  loadFogData();
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const defs = mapSvgEl.querySelector('defs');
+
+  // --- Crear mask para el fog ---
+  // Blanco = fog visible (oculto), Negro = fog removido (revelado)
+  let fogMask = mapSvgEl.querySelector('#fogRevealMask');
+  if (!fogMask) {
+    fogMask = document.createElementNS(ns, 'mask');
+    fogMask.setAttribute('id', 'fogRevealMask');
+
+    // Base blanca (fog visible en todo el mapa)
+    const base = document.createElementNS(ns, 'rect');
+    base.setAttribute('x', '0');
+    base.setAttribute('y', '0');
+    base.setAttribute('width', '1271');
+    base.setAttribute('height', '872');
+    base.setAttribute('fill', 'white');
+    fogMask.appendChild(base);
+
+    // Grupo para hexes revelados (poligonos blancos)
+    const revealGroup = document.createElementNS(ns, 'g');
+    revealGroup.setAttribute('id', 'fogRevealed');
+    fogMask.appendChild(revealGroup);
+
+    defs.appendChild(fogMask);
+  }
+
+  // --- Crear rect de fog ---
+  let fogRect = mapSvgEl.querySelector('#fogOfWar');
+  if (!fogRect) {
+    fogRect = document.createElementNS(ns, 'rect');
+    fogRect.setAttribute('id', 'fogOfWar');
+    fogRect.setAttribute('x', '0');
+    fogRect.setAttribute('y', '0');
+    fogRect.setAttribute('width', '1271');
+    fogRect.setAttribute('height', '872');
+    fogRect.setAttribute('mask', 'url(#fogRevealMask)');
+    fogRect.style.pointerEvents = 'none';
+
+    // Insertar encima de todo el contenido del mapa pero debajo de la UI
+    // (despues de markers, burgLabels, gridOverlay, etc.)
+    mapSvgEl.appendChild(fogRect);
+  }
+
+  // Color y opacidad segun rol
+  updateFogAppearance();
+
+  // Render inicial
+  renderFog();
+}
+
+/**
+ * Actualiza color/opacidad del fog segun el rol del usuario.
+ */
+function updateFogAppearance() {
+  const fogRect = mapSvgEl && mapSvgEl.querySelector('#fogOfWar');
+  if (!fogRect) return;
+
+  if (isDM()) {
+    fogRect.setAttribute('fill', 'rgba(0, 0, 0, 0.55)');
+  } else {
+    fogRect.setAttribute('fill', '#466eab');
+  }
+}
+
+/**
+ * Renderiza el estado actual del fog: crea poligonos blancos en la mask
+ * para cada hex revelado.
+ */
+function renderFog() {
+  if (!mapSvgEl) return;
+  const ns = 'http://www.w3.org/2000/svg';
+
+  const revealGroup = mapSvgEl.querySelector('#fogRevealed');
+  if (!revealGroup) return;
+
+  // Limpiar y re-renderizar
+  revealGroup.innerHTML = '';
+
+  const keys = Object.keys(FOG_DATA);
+  for (const key of keys) {
+    if (!FOG_DATA[key].revealed) continue;
+    const { q, r } = HexGrid.parseHexKey(key);
+    const poly = document.createElementNS(ns, 'polygon');
+    poly.setAttribute('points', HexGrid.hexPolygonPoints(q, r));
+    poly.setAttribute('fill', 'black');
+    revealGroup.appendChild(poly);
+  }
+}
+
+/**
+ * Toggle fog on/off (solo para DM).
+ */
+function toggleFog(visible) {
+  fogEnabled = visible;
+  const fogRect = mapSvgEl && mapSvgEl.querySelector('#fogOfWar');
+  if (fogRect) fogRect.style.display = visible ? '' : 'none';
+}
+
+/**
+ * Resetea todo el fog (todo queda oculto). Requiere confirmacion.
+ */
+function resetFog() {
+  if (!confirm('¿Resetear toda la niebla de guerra? Todos los hexes quedarán ocultos.')) return;
+  FOG_DATA = {};
+  saveFogData();
+  renderFog();
+}
+
+// =====================================================================
+// HEX DATA & TOOLTIP — Fase 3 Hexplorer
+// Detecta bioma/reino bajo un hex y muestra tooltip con info contextual.
+// =====================================================================
+
+/**
+ * Detecta qué bioma y reino hay en el centro de un hex usando elementsFromPoint.
+ * Retorna { biome: string|null, region: string|null }
+ */
+function detectHexContext(q, r) {
+  if (!mapSvgEl) return { biome: null, region: null };
+
+  const center = HexGrid.hexCenter(q, r);
+
+  // Usar isPointInFill para detectar bioma/reino sin tocar display/visibility
+  const svgPoint = mapSvgEl.createSVGPoint();
+  svgPoint.x = center.x;
+  svgPoint.y = center.y;
+
+  let biome = null;
+  let region = null;
+
+  // Buscar biomas
+  for (const entry of MAP_LEGENDS.biomes.items) {
+    const el = mapSvgEl.querySelector('#' + entry.svgId);
+    if (el && el.isPointInFill && el.isPointInFill(svgPoint)) {
+      biome = entry.name;
+      break;
+    }
+  }
+
+  // Buscar reinos (pueden estar ocultos, pero isPointInFill funciona igual)
+  for (const entry of MAP_LEGENDS.regions.items) {
+    const el = mapSvgEl.querySelector('#' + entry.svgId);
+    if (el && el.isPointInFill && el.isPointInFill(svgPoint)) {
+      region = entry.name;
+      break;
+    }
+  }
+
+  return { biome, region };
+}
+
+/**
+ * Encuentra ciudades y lugares que caen dentro del hex (q, r).
+ */
+function findEntitiesInHex(q, r) {
+  const result = { ciudades: [], lugares: [] };
+  if (!mapSvgEl) return result;
+  const targetKey = HexGrid.hexKey(q, r);
+
+  // Ciudades: buscar en burgLabels usando atributos x/y directos del SVG
+  const labelLayer = mapSvgEl.querySelector('#burgLabels');
+  if (labelLayer) {
+    labelLayer.querySelectorAll('text[data-id]').forEach(t => {
+      if (t.style.display === 'none') return;
+      const cx = parseFloat(t.getAttribute('x'));
+      const cy = parseFloat(t.getAttribute('y'));
+      if (isNaN(cx) || isNaN(cy)) return;
+      const tHex = HexGrid.svgToHex(cx, cy);
+      if (HexGrid.hexKey(tHex.q, tHex.r) === targetKey) {
+        const name = (t.childNodes[0] || t).textContent.trim();
+        if (name && !result.ciudades.includes(name)) result.ciudades.push(name);
+      }
+    });
+  }
+
+  // Lugares: buscar en MAP_MARKERS (match exacto)
+  const lugares = DATA.lugares || [];
+  const visibles = isDM() ? lugares : lugares.filter(l => l.conocido_jugadores || l.creado_por_jugador);
+  for (const lugar of visibles) {
+    const marker = MAP_MARKERS[lugar.id];
+    if (!marker) continue;
+    const lHex = HexGrid.svgToHex(marker.x, marker.y);
+    if (HexGrid.hexKey(lHex.q, lHex.r) === targetKey) {
+      result.lugares.push(lugar);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Muestra tooltip HTML cerca del cursor con info del hex.
+ */
+let hexTooltipEl = null;
+
+function showHexTooltip(e, q, r) {
+  if (!hexTooltipEl) {
+    hexTooltipEl = document.createElement('div');
+    hexTooltipEl.className = 'hex-tooltip';
+    document.body.appendChild(hexTooltipEl);
+  }
+
+  // Solo mostrar info si el hex esta revelado (o si es DM)
+  if (!isDM() && !isHexRevealed(q, r)) {
+    hideHexTooltip();
+    return;
+  }
+
+  const ctx = detectHexContext(q, r);
+  const entities = findEntitiesInHex(q, r);
+
+  // Si no hay nada que mostrar, ocultar
+  if (!ctx.biome && !ctx.region && !entities.ciudades.length && !entities.lugares.length) {
+    hideHexTooltip();
+    return;
+  }
+
+  let html = '';
+  if (ctx.region) html += `<div class="hex-tooltip-region">${ctx.region}</div>`;
+  if (ctx.biome) html += `<div class="hex-tooltip-biome">${ctx.biome}</div>`;
+  if (entities.ciudades.length) {
+    html += `<div class="hex-tooltip-entities">🏰 ${entities.ciudades.join(', ')}</div>`;
+  }
+  if (entities.lugares.length) {
+    html += `<div class="hex-tooltip-entities">📍 ${entities.lugares.map(l => l.nombre).join(', ')}</div>`;
+  }
+
+  hexTooltipEl.innerHTML = html;
+  hexTooltipEl.style.display = '';
+
+  // Posicionar cerca del cursor
+  const offsetX = 16, offsetY = 16;
+  const tipW = hexTooltipEl.offsetWidth;
+  const tipH = hexTooltipEl.offsetHeight;
+  let left = e.clientX + offsetX;
+  let top = e.clientY + offsetY;
+  if (left + tipW > window.innerWidth - 8) left = e.clientX - tipW - offsetX;
+  if (top + tipH > window.innerHeight - 8) top = e.clientY - tipH - offsetY;
+  hexTooltipEl.style.left = left + 'px';
+  hexTooltipEl.style.top = top + 'px';
+}
+
+function hideHexTooltip() {
+  if (hexTooltipEl) hexTooltipEl.style.display = 'none';
+}
+
+/**
+ * Inicializa el tooltip de hex en el mapa.
+ * Se muestra al hover sobre hexes revelados (sin necesidad del modo debug).
+ */
+function initHexTooltip() {
+  if (!mapSvgEl || typeof HexGrid === 'undefined') return;
+
+  // Click en hex revelado: abrir panel de detalle
+  mapSvgEl.addEventListener('click', (e) => {
+    if (hexDebugMode || markerMode) return;
+    const svgPt = screenToSvg(e.clientX, e.clientY);
+    const hex = HexGrid.svgToHex(svgPt.x, svgPt.y);
+    if (!isDM() && !isHexRevealed(hex.q, hex.r)) return;
+    e.stopPropagation();
+    showHexDetailPanel(hex.q, hex.r, e);
+  });
+}
+
+// =====================================================================
+// HEX DETAIL PANEL — Fase 6 Hexplorer
+// Click en hex revelado muestra panel con entidades, notas DM, y links.
+// =====================================================================
+
+let hexDetailEl = null;
+
+function showHexDetailPanel(q, r, e) {
+  if (!hexDetailEl) {
+    hexDetailEl = document.createElement('div');
+    hexDetailEl.className = 'hex-detail-panel';
+    hexDetailEl.addEventListener('click', ev => ev.stopPropagation());
+    document.body.appendChild(hexDetailEl);
+  }
+
+  const ctx = detectHexContext(q, r);
+  const entities = findEntitiesInHex(q, r);
+  const note = getHexNote(q, r);
+  const discovered = isHexDiscovered(q, r);
+  const key = HexGrid.hexKey(q, r);
+
+  let html = `<div class="hex-detail-header">`;
+  html += `<span class="hex-detail-coords">${key}</span>`;
+  html += `<button class="hex-detail-close" onclick="hideHexDetailPanel()">\u2715</button>`;
+  html += `</div>`;
+
+  if (ctx.region) html += `<div class="hex-detail-region">${ctx.region}</div>`;
+  if (ctx.biome) html += `<div class="hex-detail-biome">${ctx.biome}</div>`;
+
+  if (discovered) {
+    html += `<div class="hex-detail-status hex-detail-discovered">Explorado</div>`;
+  }
+
+  // Ciudades
+  if (entities.ciudades.length) {
+    html += `<div class="hex-detail-section">`;
+    html += `<div class="hex-detail-section-title">Ciudades</div>`;
+    for (const name of entities.ciudades) {
+      const ciudad = (DATA.ciudades || []).find(c => c.nombre.toLowerCase() === name.toLowerCase());
+      if (ciudad) {
+        html += `<a class="hex-detail-link" onclick="openDetail('ciudades', DATA.ciudades.find(c=>c.id==='${ciudad.id}'));hideHexDetailPanel()">🏰 ${name}</a>`;
+      } else {
+        html += `<div class="hex-detail-item">🏰 ${name}</div>`;
+      }
+    }
+    html += `</div>`;
+  }
+
+  // Lugares
+  if (entities.lugares.length) {
+    html += `<div class="hex-detail-section">`;
+    html += `<div class="hex-detail-section-title">Lugares</div>`;
+    for (const lugar of entities.lugares) {
+      html += `<a class="hex-detail-link" onclick="openDetail('lugares', DATA.lugares.find(l=>l.id==='${lugar.id}'));hideHexDetailPanel()">📍 ${lugar.nombre}</a>`;
+    }
+    html += `</div>`;
+  }
+
+  // Notas DM
+  if (isDM()) {
+    html += `<div class="hex-detail-section">`;
+    html += `<div class="hex-detail-section-title">Nota del DM</div>`;
+    html += `<textarea class="hex-detail-note" placeholder="Escribe una nota..."
+      onchange="setHexNote(${q}, ${r}, this.value)">${note}</textarea>`;
+    html += `</div>`;
+  }
+
+  hexDetailEl.innerHTML = html;
+  hexDetailEl.style.display = '';
+
+  // Posicionar
+  const panelW = 260;
+  let left = e.clientX + 20;
+  let top = e.clientY - 40;
+  if (left + panelW > window.innerWidth - 12) left = e.clientX - panelW - 20;
+  if (top < 12) top = 12;
+  if (top + 300 > window.innerHeight) top = window.innerHeight - 320;
+  hexDetailEl.style.left = left + 'px';
+  hexDetailEl.style.top = top + 'px';
+}
+
+function hideHexDetailPanel() {
+  if (hexDetailEl) hexDetailEl.style.display = 'none';
+}
+
+// Cerrar panel al hacer click fuera
+document.addEventListener('click', (e) => {
+  if (hexDetailEl && hexDetailEl.style.display !== 'none') {
+    if (!hexDetailEl.contains(e.target)) {
+      hideHexDetailPanel();
+    }
+  }
+});
+
+// =====================================================================
+// EXPLORATION — Fase 5 Hexplorer
+// Banner cinematico + encuentros al revelar hexes.
+// =====================================================================
+
+// Regiones ya descubiertas (para no repetir banner)
+let discoveredRegions = new Set();
+const DISCOVERED_REGIONS_KEY = 'halo_discovered_regions';
+
+function loadDiscoveredRegions() {
+  try {
+    const stored = localStorage.getItem(DISCOVERED_REGIONS_KEY);
+    if (stored) discoveredRegions = new Set(JSON.parse(stored));
+  } catch (e) { /* ignore */ }
+}
+
+function saveDiscoveredRegions() {
+  try {
+    localStorage.setItem(DISCOVERED_REGIONS_KEY, JSON.stringify([...discoveredRegions]));
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * Procesa los hexes recien revelados: detecta nuevas regiones y lanza encuentro.
+ */
+function triggerExploration(revealedKeys) {
+  if (typeof HexExplore === 'undefined') return;
+  loadDiscoveredRegions();
+
+  // Filtrar: solo hexes que no se habian descubierto antes (first-time-only)
+  const newHexKeys = revealedKeys.filter(key => {
+    const { q, r } = HexGrid.parseHexKey(key);
+    return !isHexDiscovered(q, r);
+  });
+
+  // Marcar todos como descubiertos
+  for (const key of newHexKeys) {
+    const { q, r } = HexGrid.parseHexKey(key);
+    markHexDiscovered(q, r);
+  }
+  if (newHexKeys.length > 0) saveFogData();
+
+  // Si no hay hexes nuevos, no hay exploración
+  if (newHexKeys.length === 0) return;
+
+  // Detectar regiones nuevas
+  const newRegions = new Set();
+  let biomeForEncounter = null;
+
+  for (const key of newHexKeys) {
+    const { q, r } = HexGrid.parseHexKey(key);
+    const ctx = detectHexContext(q, r);
+    if (ctx.region && !discoveredRegions.has(ctx.region)) {
+      newRegions.add(ctx.region);
+    }
+    if (!biomeForEncounter && ctx.biome) {
+      biomeForEncounter = ctx.biome;
+    }
+  }
+
+  // Banner para nuevas regiones
+  if (newRegions.size > 0) {
+    for (const region of newRegions) {
+      discoveredRegions.add(region);
+    }
+    saveDiscoveredRegions();
+    // Mostrar banner de la primera region nueva
+    const firstRegion = [...newRegions][0];
+    showRegionBanner(firstRegion);
+  }
+
+  // Encuentro aleatorio
+  if (biomeForEncounter) {
+    const result = HexExplore.explorar(biomeForEncounter);
+    if (result.tipo !== 'nada') {
+      // Esperar a que el banner termine si hay uno
+      const delay = newRegions.size > 0 ? 3500 : 200;
+      setTimeout(() => showEncounterToast(result), delay);
+    }
+  }
+}
+
+/**
+ * Muestra banner cinematico fullscreen con el nombre de la region.
+ */
+function showRegionBanner(regionName) {
+  let banner = document.getElementById('region-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'region-banner';
+    banner.className = 'region-banner';
+    document.body.appendChild(banner);
+  }
+
+  banner.textContent = regionName;
+  banner.classList.remove('region-banner-show');
+  // Force reflow para reiniciar animacion
+  void banner.offsetWidth;
+  banner.classList.add('region-banner-show');
+
+  // Remover clase despues de la animacion
+  setTimeout(() => banner.classList.remove('region-banner-show'), 3200);
+}
+
+/**
+ * Muestra toast con resultado de encuentro.
+ */
+function showEncounterToast(result) {
+  let toast = document.getElementById('encounter-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'encounter-toast';
+    toast.className = 'encounter-toast';
+    document.body.appendChild(toast);
+  }
+
+  const icons = { clima: '\u26C8', social: '\uD83D\uDDE3', combate: '\u2694' };
+  const labels = { clima: 'Clima', social: 'Encuentro Social', combate: 'Combate' };
+  const icon = icons[result.tipo] || '\u2753';
+  const label = labels[result.tipo] || result.tipo;
+
+  toast.innerHTML = `
+    <div class="encounter-toast-header">
+      <span class="encounter-toast-icon">${icon}</span>
+      <span class="encounter-toast-label">${label}</span>
+      <span class="encounter-toast-roll">d100: ${result.roll}</span>
+    </div>
+    <div class="encounter-toast-body">${result.resultado}</div>
+    <button class="encounter-toast-close" onclick="this.parentElement.classList.remove('encounter-toast-show')">\u2715</button>
+  `;
+
+  toast.classList.remove('encounter-toast-show');
+  void toast.offsetWidth;
+  toast.classList.add('encounter-toast-show');
+
+  // Auto-cerrar despues de 12 segundos
+  setTimeout(() => toast.classList.remove('encounter-toast-show'), 12000);
+}
+
+// =====================================================================
+// FOG BRUSH TOOLS — Fase 4 Hexplorer
+// Panel de brochas para que el DM revele/oculte hexes.
+// Cambios se acumulan como preview hasta que el DM hace "Aplicar".
+// =====================================================================
+
+let hexDebugMode = false;  // reusado: true = modo brocha activo
+let fogBrushType = 'reveal'; // 'reveal' o 'hide'
+let fogPendingChanges = {}; // { "q,r": 'reveal'|'hide' } — cambios sin aplicar
+let fogBrushDragging = false;
+
+function toggleFogBrush() {
+  hexDebugMode = !hexDebugMode;
+  const panel = document.getElementById('fog-brush-panel');
+  if (panel) panel.style.display = hexDebugMode ? '' : 'none';
+
+  const g = mapSvgEl && mapSvgEl.querySelector('#hex-debug-layer');
+  if (g && !hexDebugMode) g.innerHTML = '';
+  if (mapSvgEl) mapSvgEl.style.cursor = hexDebugMode ? 'crosshair' : '';
+
+  // Al desactivar, descartar cambios pendientes
+  if (!hexDebugMode && Object.keys(fogPendingChanges).length) {
+    discardFogChanges();
+  }
+}
+
+function setFogBrush(type) {
+  fogBrushType = type;
+  document.querySelectorAll('.fog-brush-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.brush === type);
+  });
+}
+
+function getFogBrushRadius() {
+  const slider = document.getElementById('hex-radius-slider');
+  return slider ? parseInt(slider.value, 10) : 0;
+}
+
+/**
+ * Pinta hexes con la brocha actual (sin guardar — solo preview).
+ */
+function paintFogBrush(q, r) {
+  const radius = getFogBrushRadius();
+  const hexes = HexGrid.hexesInRadius(q, r, radius);
+
+  for (const h of hexes) {
+    const key = HexGrid.hexKey(h.q, h.r);
+    const currentlyRevealed = isHexRevealed(h.q, h.r);
+    const alreadyPending = fogPendingChanges[key];
+
+    // Solo agregar si es un cambio real
+    if (fogBrushType === 'reveal' && !currentlyRevealed && alreadyPending !== 'reveal') {
+      fogPendingChanges[key] = 'reveal';
+    } else if (fogBrushType === 'hide' && currentlyRevealed && alreadyPending !== 'hide') {
+      fogPendingChanges[key] = 'hide';
+    }
+  }
+
+  renderFogPreview();
+  updateFogPendingCount();
+}
+
+/**
+ * Renderiza el preview de cambios pendientes sobre el mapa.
+ */
+function renderFogPreview() {
+  if (!mapSvgEl) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  let g = mapSvgEl.querySelector('#hex-debug-layer');
+  if (!g) return;
+
+  g.innerHTML = '';
+
+  for (const [key, action] of Object.entries(fogPendingChanges)) {
+    const { q, r } = HexGrid.parseHexKey(key);
+    const poly = document.createElementNS(ns, 'polygon');
+    poly.setAttribute('points', HexGrid.hexPolygonPoints(q, r));
+    if (action === 'reveal') {
+      poly.setAttribute('fill', 'rgba(80, 220, 120, 0.35)');
+      poly.setAttribute('stroke', '#50dc78');
+    } else {
+      poly.setAttribute('fill', 'rgba(220, 80, 80, 0.35)');
+      poly.setAttribute('stroke', '#dc5050');
+    }
+    poly.setAttribute('stroke-width', '0.25');
+    g.appendChild(poly);
+  }
+}
+
+function updateFogPendingCount() {
+  const count = Object.keys(fogPendingChanges).length;
+  const el = document.getElementById('fog-pending-count');
+  if (el) el.textContent = count > 0 ? `${count} hex${count > 1 ? 'es' : ''}` : '';
+  const actions = document.getElementById('fog-pending-actions');
+  if (actions) actions.style.display = count > 0 ? '' : 'none';
+}
+
+/**
+ * Aplica los cambios pendientes al fog (guarda en localStorage).
+ */
+function applyFogChanges() {
+  if (!Object.keys(fogPendingChanges).length) return;
+
+  // Detectar nuevas regiones descubiertas (para banner)
+  const revealedKeys = [];
+  for (const [key, action] of Object.entries(fogPendingChanges)) {
+    const { q, r } = HexGrid.parseHexKey(key);
+    if (action === 'reveal') {
+      revealHex(q, r, false);
+      revealedKeys.push(key);
+    } else {
+      hideHex(q, r, false);
+    }
+  }
+  saveFogData();
+  fogPendingChanges = {};
+  renderFog();
+  renderFogPreview();
+  updateFogPendingCount();
+
+  // Trigger exploracion para hexes revelados
+  if (revealedKeys.length > 0) {
+    triggerExploration(revealedKeys);
+  }
+}
+
+/**
+ * Descarta los cambios pendientes.
+ */
+function discardFogChanges() {
+  fogPendingChanges = {};
+  renderFogPreview();
+  updateFogPendingCount();
+}
+
+function initFogBrushTools() {
+  if (!mapSvgEl || typeof HexGrid === 'undefined') return;
+  if (!isDM()) return;
+
+  const ns = 'http://www.w3.org/2000/svg';
+
+  // Capa de preview (reusar hex-debug-layer)
+  let g = mapSvgEl.querySelector('#hex-debug-layer');
+  if (!g) {
+    g = document.createElementNS(ns, 'g');
+    g.setAttribute('id', 'hex-debug-layer');
+    g.style.pointerEvents = 'none';
+    mapSvgEl.appendChild(g);
+  }
+
+  // Panel de brochas (insertado en map-wrapper)
+  const wrapper = document.querySelector('.map-wrapper');
+  if (wrapper && !document.getElementById('fog-brush-panel')) {
+    const panel = document.createElement('div');
+    panel.id = 'fog-brush-panel';
+    panel.className = 'fog-brush-panel';
+    panel.style.display = 'none';
+    panel.innerHTML = `
+      <div class="fog-brush-title">Niebla</div>
+      <div class="fog-brush-row">
+        <button class="fog-brush-btn active" data-brush="reveal" onclick="setFogBrush('reveal')">
+          <span class="fog-brush-icon" style="background:#50dc78"></span> Revelar
+        </button>
+        <button class="fog-brush-btn" data-brush="hide" onclick="setFogBrush('hide')">
+          <span class="fog-brush-icon" style="background:#dc5050"></span> Ocultar
+        </button>
+      </div>
+      <div class="fog-brush-row">
+        <label class="hex-radius-label" title="Radio">
+          Radio <span id="hex-radius-value">0</span>
+          <input type="range" id="hex-radius-slider" min="0" max="5" value="0"
+            oninput="document.getElementById('hex-radius-value').textContent = this.value">
+        </label>
+      </div>
+      <div class="fog-brush-row fog-pending" id="fog-pending-actions" style="display:none">
+        <span id="fog-pending-count"></span>
+        <button class="fog-action-btn fog-apply" onclick="applyFogChanges()">Aplicar</button>
+        <button class="fog-action-btn fog-discard" onclick="discardFogChanges()">Descartar</button>
+      </div>
+      <div class="fog-brush-row">
+        <button class="fog-action-btn fog-reset" onclick="resetFog()">Reset todo</button>
+      </div>
+    `;
+    wrapper.appendChild(panel);
+  }
+
+  // Boton toggle en zoom controls
+  const zoomControls = document.querySelector('.map-zoom-controls');
+  if (zoomControls && !document.getElementById('btn-fog-brush')) {
+    const btn = document.createElement('button');
+    btn.id = 'btn-fog-brush';
+    btn.className = 'map-zoom-btn map-marker-btn';
+    btn.title = 'Herramientas de niebla';
+    btn.onclick = toggleFogBrush;
+    btn.innerHTML = '⬡';
+    btn.style.fontSize = '18px';
+    zoomControls.insertBefore(btn, zoomControls.firstChild);
+  }
+
+  // --- Interaccion: hover highlight ---
+  let lastHoverKey = '';
+  mapSvgEl.addEventListener('mousemove', (e) => {
+    if (!hexDebugMode || mapDragging) return;
+    const svgPt = screenToSvg(e.clientX, e.clientY);
+    const hex = HexGrid.svgToHex(svgPt.x, svgPt.y);
+    const key = HexGrid.hexKey(hex.q, hex.r);
+
+    // Drag: pintar mientras se mueve con boton presionado
+    if (fogBrushDragging && key !== lastHoverKey) {
+      paintFogBrush(hex.q, hex.r);
+    }
+    lastHoverKey = key;
+  });
+
+  // --- Interaccion: click para pintar ---
+  mapSvgEl.addEventListener('mousedown', (e) => {
+    if (!hexDebugMode || markerMode || e.button !== 0) return;
+    e.preventDefault();
+    fogBrushDragging = true;
+
+    const svgPt = screenToSvg(e.clientX, e.clientY);
+    const hex = HexGrid.svgToHex(svgPt.x, svgPt.y);
+    paintFogBrush(hex.q, hex.r);
+  });
+
+  window.addEventListener('mouseup', () => {
+    fogBrushDragging = false;
+  });
+
+  // --- Toggle boton activo ---
+  const brushBtn = document.getElementById('btn-fog-brush');
+  if (brushBtn) {
+    const observer = new MutationObserver(() => {
+      brushBtn.classList.toggle('active', hexDebugMode);
+    });
   }
 }
