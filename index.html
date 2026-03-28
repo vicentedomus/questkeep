@@ -134,69 +134,13 @@
       <div class="campana-toolbar">
         <input type="text" id="campana-search" class="search-input" placeholder="Buscar en toda la campaña..." oninput="renderCampana()">
         <button class="btn btn-sm campana-clear-btn" onclick="campanaSelected=null;renderCampana()" title="Limpiar selección" style="display:none" id="campana-clear-sel">Limpiar selección</button>
+        <button class="btn btn-sm campana-config-btn" onclick="campanaToggleConfig()" title="Configurar columnas" id="campana-config-toggle">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span>Columnas</span>
+        </button>
       </div>
-      <div class="campana-columns" id="campana-columns">
-        <div class="campana-col" data-col="npcs">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-            <span class="campana-col-title">NPCs</span>
-            <span class="campana-col-count" id="campana-count-npcs">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-npcs" onclick="campanaToggleFilter('npcs')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-npcs"></div>
-          <div class="campana-col-body" id="campana-list-npcs"></div>
-        </div>
-        <div class="campana-col" data-col="ciudades">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/></svg></span>
-            <span class="campana-col-title">Ciudades</span>
-            <span class="campana-col-count" id="campana-count-ciudades">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-ciudades" onclick="campanaToggleFilter('ciudades')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-ciudades"></div>
-          <div class="campana-col-body" id="campana-list-ciudades"></div>
-        </div>
-        <div class="campana-col" data-col="lugares">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></span>
-            <span class="campana-col-title">Lugares</span>
-            <span class="campana-col-count" id="campana-count-lugares">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-lugares" onclick="campanaToggleFilter('lugares')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-lugares"></div>
-          <div class="campana-col-body" id="campana-list-lugares"></div>
-        </div>
-        <div class="campana-col" data-col="quests">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
-            <span class="campana-col-title">Quests</span>
-            <span class="campana-col-count" id="campana-count-quests">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-quests" onclick="campanaToggleFilter('quests')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-quests"></div>
-          <div class="campana-col-body" id="campana-list-quests"></div>
-        </div>
-        <div class="campana-col" data-col="items">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-            <span class="campana-col-title">Items</span>
-            <span class="campana-col-count" id="campana-count-items">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-items" onclick="campanaToggleFilter('items')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-items"></div>
-          <div class="campana-col-body" id="campana-list-items"></div>
-        </div>
-        <div class="campana-col" data-col="establecimientos">
-          <div class="campana-col-header">
-            <span class="campana-col-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
-            <span class="campana-col-title">Establecimientos</span>
-            <span class="campana-col-count" id="campana-count-establecimientos">0</span>
-            <button class="campana-filter-btn" id="campana-filter-btn-establecimientos" onclick="campanaToggleFilter('establecimientos')" title="Filtrar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
-          </div>
-          <div class="campana-filter-panel" id="campana-filter-panel-establecimientos"></div>
-          <div class="campana-col-body" id="campana-list-establecimientos"></div>
-        </div>
-      </div>
+      <div class="campana-config-panel" id="campana-config-panel"></div>
+      <div class="campana-columns" id="campana-columns"></div>
     </section>
 
     <section id="section-notas" class="section">

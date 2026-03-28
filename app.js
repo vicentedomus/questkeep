@@ -1026,6 +1026,7 @@ function buildDetailHTML(section, data) {
 // Estado persistente de la pestaña Campaña
 let campanaSelected = null;  // { section, notion_id }
 let campanaColOrder = null;  // ['npcs','ciudades',...] — se inicializa en primer render
+let campanaVisibleCols = null; // Set de keys visibles — se inicializa desde localStorage
 
 // Mapa de relaciones: dado un tipo+id, qué IDs de otras entidades están relacionados
 function campanaGetRelatedIds(section, notionId) {
@@ -1144,24 +1145,32 @@ function initCampanaDrag() {
 
 // Restaurar orden de columnas desde localStorage
 function restoreCampanaColOrder() {
-  const container = document.getElementById('campana-columns');
-  if (!container) return;
   try {
     const saved = JSON.parse(localStorage.getItem('campana_col_order'));
     if (saved && Array.isArray(saved)) {
       campanaColOrder = saved;
-      for (const key of saved) {
-        const col = container.querySelector(`.campana-col[data-col="${key}"]`);
-        if (col) container.appendChild(col);
-      }
+      return;
     }
   } catch {}
   if (!campanaColOrder) {
-    campanaColOrder = [...container.querySelectorAll('.campana-col')].map(c => c.dataset.col);
+    campanaColOrder = CAMPANA_COL_DEFS.map(c => c.key);
   }
 }
 
 let campanaDragInited = false;
+
+const CAMPANA_COL_ICONS = {
+  npcs: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  ciudades: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/></svg>',
+  lugares: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>',
+  quests: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  items: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  establecimientos: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+};
+const CAMPANA_COL_TITLES = {
+  npcs: 'NPCs', ciudades: 'Ciudades', lugares: 'Lugares',
+  quests: 'Quests', items: 'Items', establecimientos: 'Establecimientos',
+};
 
 const CAMPANA_COL_DEFS = [
   {
@@ -1274,6 +1283,98 @@ const CAMPANA_COL_DEFS = [
 // Estado de filtros por columna: { npcs: { rol: 'Aliado' }, ... }
 const campanaFilters = {};
 
+// ── Configuración de columnas visibles ──
+function campanaInitVisibleCols() {
+  if (campanaVisibleCols) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem('campana_visible_cols'));
+    if (saved && Array.isArray(saved)) {
+      campanaVisibleCols = new Set(saved);
+      return;
+    }
+  } catch {}
+  campanaVisibleCols = new Set(CAMPANA_COL_DEFS.map(c => c.key));
+}
+
+function campanaSaveVisibleCols() {
+  try { localStorage.setItem('campana_visible_cols', JSON.stringify([...campanaVisibleCols])); } catch {}
+}
+
+function campanaToggleCol(key) {
+  campanaInitVisibleCols();
+  if (campanaVisibleCols.has(key)) {
+    if (campanaVisibleCols.size <= 1) return; // no ocultar la última
+    campanaVisibleCols.delete(key);
+  } else {
+    campanaVisibleCols.add(key);
+  }
+  campanaSaveVisibleCols();
+  campanaBuildColumns();
+  renderCampana();
+  campanaRenderConfigPanel();
+}
+
+function campanaToggleConfig() {
+  const panel = document.getElementById('campana-config-panel');
+  if (!panel) return;
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) campanaRenderConfigPanel();
+}
+
+function campanaRenderConfigPanel() {
+  campanaInitVisibleCols();
+  const panel = document.getElementById('campana-config-panel');
+  if (!panel) return;
+  panel.innerHTML = CAMPANA_COL_DEFS.map(col => {
+    const checked = campanaVisibleCols.has(col.key);
+    return `<label class="campana-config-item${checked ? ' active' : ''}">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="campanaToggleCol('${col.key}')">
+      <span class="campana-config-icon">${CAMPANA_COL_ICONS[col.key]}</span>
+      <span>${CAMPANA_COL_TITLES[col.key]}</span>
+    </label>`;
+  }).join('');
+}
+
+// Generar columnas dinámicamente en el DOM
+function campanaBuildColumns() {
+  campanaInitVisibleCols();
+  const container = document.getElementById('campana-columns');
+  if (!container) return;
+
+  // Determinar orden: usar campanaColOrder si existe, sino orden por defecto
+  const allKeys = CAMPANA_COL_DEFS.map(c => c.key);
+  let order = campanaColOrder || allKeys;
+  // Asegurar que todas las keys existen en order
+  for (const k of allKeys) {
+    if (!order.includes(k)) order.push(k);
+  }
+
+  container.innerHTML = '';
+  const filterIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>';
+
+  for (const key of order) {
+    if (!campanaVisibleCols.has(key)) continue;
+    const title = CAMPANA_COL_TITLES[key] || key;
+    const icon = CAMPANA_COL_ICONS[key] || '';
+    const colEl = document.createElement('div');
+    colEl.className = 'campana-col';
+    colEl.dataset.col = key;
+    colEl.innerHTML = `
+      <div class="campana-col-header">
+        <span class="campana-col-icon">${icon}</span>
+        <span class="campana-col-title">${title}</span>
+        <span class="campana-col-count" id="campana-count-${key}">0</span>
+        <button class="campana-filter-btn" id="campana-filter-btn-${key}" onclick="campanaToggleFilter('${key}')" title="Filtrar">${filterIcon}</button>
+      </div>
+      <div class="campana-filter-panel" id="campana-filter-panel-${key}"></div>
+      <div class="campana-col-body" id="campana-list-${key}"></div>`;
+    container.appendChild(colEl);
+  }
+
+  // Re-inicializar drag & drop
+  campanaDragInited = false;
+}
+
 function campanaToggleFilter(colKey) {
   const panel = document.getElementById(`campana-filter-panel-${colKey}`);
   if (!panel) return;
@@ -1316,10 +1417,19 @@ function campanaClickMini(el, event) {
 }
 
 function renderCampana() {
+  // Construir columnas dinámicamente en el primer render
+  const container = document.getElementById('campana-columns');
+  if (container && !container.children.length) {
+    restoreCampanaColOrder();
+    campanaBuildColumns();
+  }
+
+  campanaInitVisibleCols();
   const searchVal = (document.getElementById('campana-search')?.value || '').toLowerCase().trim();
   const relatedIds = campanaSelected ? campanaGetRelatedIds(campanaSelected.section, campanaSelected.notion_id) : null;
 
   for (const col of CAMPANA_COL_DEFS) {
+    if (!campanaVisibleCols.has(col.key)) continue;
     let items = DATA[col.dataKey] || [];
     items = items.filter(col.visFilter);
 
@@ -1402,9 +1512,8 @@ function renderCampana() {
   const clearBtn = document.getElementById('campana-clear-sel');
   if (clearBtn) clearBtn.style.display = campanaSelected ? '' : 'none';
 
-  // Init drag solo una vez
+  // Init drag después de construir columnas
   if (!campanaDragInited) {
-    restoreCampanaColOrder();
     initCampanaDrag();
     campanaDragInited = true;
   }

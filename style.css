@@ -3040,6 +3040,50 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .campana-clear-btn {
   white-space: nowrap;
 }
+.campana-config-btn {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.campana-config-panel {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 12px 0;
+}
+.campana-config-panel.open {
+  display: flex;
+}
+.campana-config-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.campana-config-item.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-container));
+}
+.campana-config-item:hover {
+  border-color: var(--secondary);
+}
+.campana-config-item input[type="checkbox"] {
+  display: none;
+}
+.campana-config-icon {
+  display: flex;
+  align-items: center;
+}
 
 .campana-columns {
   display: flex;
