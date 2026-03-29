@@ -1633,6 +1633,25 @@ body.bg-app {
   outline: none;
   border-color: var(--primary);
 }
+.hex-detail-difficulty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+  color: var(--on-surface);
+}
+.hex-detail-diff-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.hex-detail-diff-city {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--on-surface-variant);
+}
 
 /* Hex tooltip */
 .hex-tooltip {

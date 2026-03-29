@@ -2667,6 +2667,7 @@ async function saveModal() {
 const VB_W0 = 1271, VB_H0 = 872;
 // ViewBox recortado a la tierra (con padding)
 const LAND_X = 530, LAND_Y = 340, LAND_W = 300, LAND_H = 250;
+let LAND_HEXES = null; // Set de hexes de tierra, cargado desde data/land-hexes.json
 let vbX = LAND_X, vbY = LAND_Y, vbW = LAND_W, vbH = LAND_H;
 let mapDragging = false, mapLastX = 0, mapLastY = 0;
 let mapSvgEl = null;
@@ -2727,6 +2728,7 @@ const MAP_LAYER_GROUPS = [
   { label: 'Fronteras',   ids: ['borders'],                 on: false },
   { label: 'Culturas',    ids: ['cults'],                   on: false, legend: 'cults' },
   { label: 'Niebla',      ids: ['fogOfWar'],                on: true,  dmOnly: true },
+  { label: 'Dificultad',  ids: ['difficultyLayer'],         on: false, dmOnly: true },
 ];
 
 function injectGridPattern(svgEl) {
@@ -2835,6 +2837,9 @@ async function renderMapa() {
     initMapToolsBar();
     initFogBrushTools();
     initPartySystem();
+    if (typeof HexDifficulty !== 'undefined') HexDifficulty.buildCityCache(mapSvgEl);
+    // Cargar hexes de tierra para capa de dificultad
+    fetch('data/land-hexes.json').then(r => r.json()).then(d => { LAND_HEXES = d.land; }).catch(() => {});
     mapLoaded = true;
   } catch(e) {
     viewport.innerHTML = `<div style="padding:40px;color:var(--text-dim);font-family:'Cinzel',serif;text-align:center">Error al cargar el mapa: ${e.message}</div>`;
@@ -2864,9 +2869,11 @@ function toggleMapLayer(groupIdx, visible) {
   if (g) g.on = visible;
   if (!mapSvgEl) return;
 
-  // Fog tiene su propia funcion de toggle
+  // Capas especiales
   if (g && g.ids.includes('fogOfWar')) {
     toggleFog(visible);
+  } else if (g && g.ids.includes('difficultyLayer')) {
+    toggleDifficultyLayer(visible);
   } else {
     (g ? g.ids : []).forEach(id => {
       const el = mapSvgEl.querySelector('#' + id);
@@ -3569,6 +3576,50 @@ async function recargarDatos() {
 }
 
 // =====================================================================
+// DIFFICULTY LAYER — Overlay visual de niveles de dificultad
+// =====================================================================
+
+let difficultyLayerVisible = false;
+
+function toggleDifficultyLayer(visible) {
+  difficultyLayerVisible = visible;
+  const g = mapSvgEl && mapSvgEl.querySelector('#difficultyLayer');
+  if (g) g.style.display = visible ? '' : 'none';
+  if (visible) renderDifficultyLayer();
+}
+
+function renderDifficultyLayer() {
+  if (!mapSvgEl || typeof HexDifficulty === 'undefined' || typeof HexGrid === 'undefined') return;
+  const ns = 'http://www.w3.org/2000/svg';
+
+  let g = mapSvgEl.querySelector('#difficultyLayer');
+  if (!g) {
+    g = document.createElementNS(ns, 'g');
+    g.setAttribute('id', 'difficultyLayer');
+    g.style.pointerEvents = 'none';
+    // Insertar debajo del fog
+    const fogRect = mapSvgEl.querySelector('#fogOfWar');
+    if (fogRect) {
+      mapSvgEl.insertBefore(g, fogRect);
+    } else {
+      mapSvgEl.appendChild(g);
+    }
+  }
+
+  if (g.childNodes.length > 0) return; // Ya renderizado
+  if (!LAND_HEXES) return;
+
+  for (const [q, r] of LAND_HEXES) {
+    const diff = HexDifficulty.getDifficulty(q, r);
+    const poly = document.createElementNS(ns, 'polygon');
+    poly.setAttribute('points', HexGrid.hexPolygonPoints(q, r));
+    poly.setAttribute('fill', diff.color);
+    poly.setAttribute('stroke', 'none');
+    g.appendChild(poly);
+  }
+}
+
+// =====================================================================
 // FOG OF WAR — Fase 2 Hexplorer
 // Capa de niebla hexagonal: hexes no revelados se cubren con fog negro.
 // Estrategia: rect negro con mask SVG. Solo se dibujan hexes revelados
@@ -4051,6 +4102,18 @@ function showHexDetailPanel(q, r, e) {
 
   if (ctx.region) html += `<div class="hex-detail-region">${ctx.region}</div>`;
   if (ctx.biome) html += `<div class="hex-detail-biome">${ctx.biome}</div>`;
+
+  // Dificultad (Tiers of Play)
+  if (typeof HexDifficulty !== 'undefined') {
+    const diff = HexDifficulty.getDifficulty(q, r);
+    const tierColors = ['#50dc78', '#c8be32', '#d27828', '#a032b4'];
+    const dotColor = tierColors[diff.tier - 1] || '#888';
+    html += `<div class="hex-detail-difficulty">
+      <span class="hex-detail-diff-dot" style="background:${dotColor}"></span>
+      <span>Tier ${diff.tier} — ${diff.name} (Lvl ${diff.levels})</span>
+      ${diff.nearestCity ? `<span class="hex-detail-diff-city">${diff.nearestCity} (${diff.distance}h)</span>` : ''}
+    </div>`;
+  }
 
   if (discovered) {
     html += `<div class="hex-detail-status hex-detail-discovered">Explorado</div>`;
