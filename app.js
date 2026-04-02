@@ -10,6 +10,13 @@ let currentModalSection = null;
 let currentModalData = null;
 let currentModalMode = null; // 'detail' | 'edit'
 
+/** Devuelve nombres de jugadores desde personajes PJ cargados */
+function getPlayerNames() {
+  return (DATA.players || [])
+    .filter(p => p.es_pj && p.jugador)
+    .map(p => p.jugador);
+}
+
 // ── INIT ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -2272,7 +2279,7 @@ const FORM_SCHEMAS = {
     { key:'clase',     label:'Clase',     type:'text' },
     { key:'subclase',  label:'Subclase',  type:'text' },
     { key:'raza',      label:'Raza',      type:'text' },
-    { key:'jugador',   label:'Jugador',   type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
+    { key:'jugador',   label:'Jugador',   type:'select', optionsFn: () => ['', ...getPlayerNames()] },
     { key:'nivel',     label:'Nivel',     type:'number' },
     { key:'ac',        label:'AC',        type:'number' },
     { key:'hp_maximo', label:'HP M\u00e1x', type:'number' },
@@ -2347,14 +2354,14 @@ const FORM_SCHEMAS = {
   notas_dm: [
     { key:'nombre',  label:'T\u00edtulo', type:'text', required:true },
     { key:'fecha',   label:'Fecha', type:'date' },
-    { key:'jugadores_presentes', label:'Jugadores presentes', type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
+    { key:'jugadores_presentes', label:'Jugadores presentes', type:'select', optionsFn: () => ['', ...getPlayerNames()] },
     { key:'quests', label:'Quests relacionadas', type:'select-rel-multi', source:'quests' },
     { key:'resumen', label:'Resumen', type:'textarea' },
   ],
   notas_jugadores: [
     { key:'nombre',   label:'T\u00edtulo', type:'text', required:true },
     { key:'fecha',    label:'Fecha', type:'date' },
-    { key:'jugador',  label:'Jugador', type:'select', options:['','Tino','Caco','Leo','Enoch','Hiram'] },
+    { key:'jugador',  label:'Jugador', type:'select', optionsFn: () => ['', ...getPlayerNames()] },
     { key:'items', label:'Items relacionados', type:'select-rel-multi', source:'items' },
     { key:'resumen',  label:'Resumen', type:'textarea' },
   ],
@@ -2384,7 +2391,8 @@ function formFieldHTML(field, data) {
     return `<div class="form-group"><div class="form-check"><input type="checkbox" id="field-${field.key}" ${v ? 'checked' : ''}><label for="field-${field.key}">${field.label}</label></div></div>`;
   }
   if (field.type === 'select') {
-    const items = field.options.map(o => ({ value: o, label: o || '— Ninguno —' }));
+    const opts = field.optionsFn ? field.optionsFn() : (field.options || []);
+    const items = opts.map(o => ({ value: o, label: o || '— Ninguno —' }));
     const selLabel = items.find(i => i.value === v)?.label || '— Ninguno —';
     return `<div class="form-group"><label>${field.label}</label>
       <div class="ss-wrap" data-field="${field.key}">

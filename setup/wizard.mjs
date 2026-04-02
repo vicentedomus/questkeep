@@ -4,7 +4,7 @@
  *
  * Uso:  node setup/wizard.mjs
  *
- * Genera campaign.js, inicializa la BD en Supabase y crea usuarios de auth.
+ * Genera campaign.js, crea schema en Supabase, inicializa tablas y crea usuarios.
  */
 
 import readline from 'node:readline/promises';
@@ -59,11 +59,12 @@ if (existsSync(campaignPath)) {
   console.log();
 }
 
-// ── Collect info ────────────────────────────────────────────
+// ── Collect campaign info ───────────────────────────────────
 
 log('── Datos de la campaña ──\n');
 
 const slug = await ask('Slug (sin espacios, ej: mi-campana)');
+const schema = slug.replace(/-/g, '_');
 const name = await ask('Nombre de la campaña');
 const subtitle = await ask('Subtítulo (opcional, Enter para saltar)', '');
 
@@ -76,18 +77,29 @@ const serviceRoleKey = await ask('Service role key (solo para setup, no se guard
 const dbPassword = await ask('Database password');
 
 console.log();
-log('── Contraseñas de acceso ──\n');
-
-const dmPassword = await ask('Contraseña del DM');
-const playerPassword = await ask('Contraseña de los jugadores');
-
-console.log();
 log('── Opcionales ──\n');
 
 const githubOwner = await ask('GitHub owner (Enter para saltar)', '');
 const githubRepo = await ask('GitHub repo (Enter para saltar)', '');
 const hasMap = await askYN('¿Tiene mapa SVG?');
 const hasAI = await askYN('¿Tiene IA (Edge Functions + API key Anthropic)?');
+
+// ── Collect users ───────────────────────────────────────────
+
+console.log();
+log('── Usuarios ──\n');
+log('Primero el DM, luego los jugadores.\n');
+
+const dmUsername = await ask('Username del DM');
+const tempPassword = await ask('Contraseña temporal (todos la usan para el primer login)', 'halo2026');
+
+const players = [];
+log('\nJugadores (escribe un username por línea, Enter vacío para terminar):\n');
+while (true) {
+  const p = await ask(`  Jugador ${players.length + 1}`);
+  if (!p) break;
+  players.push(p.toLowerCase());
+}
 
 rl.close();
 
@@ -100,9 +112,9 @@ if (!refMatch) {
 }
 const ref = refMatch[1];
 
-// ── Step 1: Generate campaign.js ────────────────────────────
+// ── Step 1/4: Generate campaign.js ──────────────────────────
 
-console.log('\n  ── Paso 1/3: Generando campaign.js...');
+console.log('\n  ── Paso 1/4: Generando campaign.js...');
 
 const campaignJS = `/**
  * campaign.js — Configuración de la campaña ${name}.
@@ -111,6 +123,7 @@ const campaignJS = `/**
  */
 const CAMPAIGN = {
   slug:           '${slug}',
+  schema:         '${schema}',
   name:           '${name.replace(/'/g, "\\'")}',
   subtitle:       '${(subtitle || '').replace(/'/g, "\\'")}',
   supabaseUrl:    '${supabaseUrl}',
@@ -125,9 +138,9 @@ const CAMPAIGN = {
 writeFileSync(campaignPath, campaignJS, 'utf-8');
 ok('campaign.js generado');
 
-// ── Step 2: Initialize database ─────────────────────────────
+// ── Step 2/4: Create schema & initialize database ───────────
 
-console.log('\n  ── Paso 2/3: Inicializando base de datos...');
+console.log('\n  ── Paso 2/4: Inicializando base de datos...');
 
 const client = new pg.Client({
   host: `db.${ref}.supabase.co`,
@@ -148,10 +161,24 @@ try {
   process.exit(1);
 }
 
+/**
+ * Ejecuta SQL dentro del schema de la campaña.
+ * Reemplaza 'public.' por '{schema}.' y ajusta search_path.
+ */
+async function runInSchema(sql) {
+  await client.query(`SET search_path TO "${schema}", public;`);
+  await client.query(sql);
+}
+
 try {
+  // Crear schema
+  log(`  → Creando schema "${schema}"...`);
+  await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}";`);
+  ok(`schema "${schema}"`);
+
   // Schema principal
   log('  → schema.sql...');
-  await client.query(readSQL('sql/schema.sql'));
+  await runInSchema(readSQL('sql/schema.sql'));
   ok('schema.sql');
 
   // Migraciones
@@ -159,40 +186,51 @@ try {
   const migrations = readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
   for (const m of migrations) {
     log(`  → ${m}...`);
-    await client.query(readFileSync(join(migrationsDir, m), 'utf-8'));
+    await runInSchema(readFileSync(join(migrationsDir, m), 'utf-8'));
     ok(m);
   }
 
   // Catálogos
   log('  → items-catalog-schema.sql...');
-  await client.query(readSQL('sql/items-catalog-schema.sql'));
+  await runInSchema(readSQL('sql/items-catalog-schema.sql'));
   ok('items-catalog-schema.sql');
 
   log('  → monstruos-schema.sql...');
-  await client.query(readSQL('sql/monstruos-schema.sql'));
+  await runInSchema(readSQL('sql/monstruos-schema.sql'));
   ok('monstruos-schema.sql');
 
   log('  → session-plans-schema.sql...');
-  await client.query(readSQL('sql/session-plans-schema.sql'));
+  await runInSchema(readSQL('sql/session-plans-schema.sql'));
   ok('session-plans-schema.sql');
 
   // RLS
   log('  → rls.sql...');
-  await client.query(readSQL('sql/rls.sql'));
+  await runInSchema(readSQL('sql/rls.sql'));
   ok('rls.sql');
 
   // Migration tracking
   log('  → tabla _migrations...');
-  await client.query(`
+  await runInSchema(`
     CREATE TABLE IF NOT EXISTS _migrations (
       name text PRIMARY KEY,
       applied_at timestamptz DEFAULT now()
     );
   `);
   for (const m of migrations) {
-    await client.query(`INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT DO NOTHING`, [m]);
+    await client.query(`INSERT INTO "${schema}"._migrations (name) VALUES ($1) ON CONFLICT DO NOTHING`, [m]);
   }
   ok('_migrations registradas');
+
+  // Exponer schema al API de Supabase (PostgREST)
+  log('  → Exponiendo schema a la API...');
+  await client.query(`
+    GRANT USAGE ON SCHEMA "${schema}" TO anon, authenticated, service_role;
+    GRANT ALL ON ALL TABLES IN SCHEMA "${schema}" TO anon, authenticated, service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA "${schema}" TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA "${schema}" GRANT ALL ON TABLES TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA "${schema}" GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+  `);
+  ok('permisos de schema');
 
 } catch (err) {
   fail(`Error ejecutando SQL: ${err.message}`);
@@ -205,16 +243,11 @@ try {
 await client.end();
 ok('Base de datos inicializada');
 
-// ── Step 3: Create auth users ───────────────────────────────
+// ── Step 3/4: Create auth users ─────────────────────────────
 
-console.log('\n  ── Paso 3/3: Creando usuarios...');
+console.log('\n  ── Paso 3/4: Creando usuarios...');
 
-const users = [
-  { email: `dm@${slug}.local`,     password: dmPassword,     role: 'dm' },
-  { email: `player@${slug}.local`, password: playerPassword, role: 'player' },
-];
-
-for (const u of users) {
+async function createUser(username, role) {
   const res = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
     method: 'POST',
     headers: {
@@ -223,29 +256,46 @@ for (const u of users) {
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      email:         u.email,
-      password:      u.password,
+      email:         `${username}@dnd.local`,
+      password:      tempPassword,
       email_confirm: true,
-      user_metadata: { role: u.role },
+      user_metadata: {
+        role,
+        campaign: slug,
+        username,
+        mustChangePassword: true,
+      },
     }),
   });
 
   const data = await res.json();
   if (data.id) {
-    ok(`${u.role.toUpperCase()} (${u.email})`);
+    ok(`${username} (${role})`);
   } else {
-    fail(`Error creando ${u.role}: ${JSON.stringify(data)}`);
+    fail(`${username}: ${data.msg || data.message || JSON.stringify(data)}`);
   }
 }
 
-// ── Done ────────────────────────────────────────────────────
+await createUser(dmUsername.toLowerCase(), 'dm');
+for (const p of players) {
+  await createUser(p, 'player');
+}
+
+// ── Step 4/4: Summary ───────────────────────────────────────
+
+const allUsers = [dmUsername.toLowerCase(), ...players];
 
 console.log(`
   ────────────────────────────────
   ✓ Setup completo!
 
-  DM:      ${dmPassword}
-  Players: ${playerPassword}
+  Campaña:         ${name}
+  Schema:          ${schema}
+  Usuarios:        ${allUsers.join(', ')}
+  Contraseña temp: ${tempPassword}
+
+  Cada usuario cambiará su contraseña
+  en el primer login.
 
   Abre index.html con Live Server
   o despliega a GitHub Pages.

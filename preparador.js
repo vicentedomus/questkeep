@@ -807,6 +807,7 @@ async function generatePlan() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
         'X-DM-Auth': sessionStorage.getItem('dm_password') || '',
+        'X-Campaign-Schema': CONFIG.SCHEMA,
       },
       body: JSON.stringify({
         formData,
@@ -1179,6 +1180,7 @@ async function regenerateBloque(planId, bloqueKey) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
         'X-DM-Auth': sessionStorage.getItem('dm_password') || '',
+        'X-Campaign-Schema': CONFIG.SCHEMA,
       },
       body: JSON.stringify({
         formData: { ...(plan.input_data || {}), bloque_objetivo: bloqueKey },

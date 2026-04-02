@@ -459,6 +459,7 @@ async function sendMessage(text) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
         'X-DM-Auth': sessionStorage.getItem('dm_password') || '',
+        'X-Campaign-Schema': CONFIG.SCHEMA,
       },
       body: JSON.stringify({
         messages: chatMessages,
