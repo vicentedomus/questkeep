@@ -235,12 +235,14 @@
     <section id="section-mapa" class="section section-mapa">
       <div class="map-wrapper">
         <div class="map-layer-panel" id="map-layer-panel"></div>
-        <div id="exploration-log-panel" class="exploration-log-panel" style="display:none">
-          <div class="exploration-log-header">
-            <span>Diario de Exploración</span>
-            <button class="hex-detail-close" onclick="toggleExplorationLog()">✕</button>
+        <div id="exploration-log-overlay" class="exploration-log-overlay" style="display:none" onclick="if(event.target===this)toggleExplorationLog()">
+          <div id="exploration-log-panel" class="exploration-log-panel">
+            <div class="exploration-log-header">
+              <span>📜 Diario de Exploración</span>
+              <button class="hex-detail-close" onclick="toggleExplorationLog()">✕</button>
+            </div>
+            <div id="exploration-log-list" class="exploration-log-list"></div>
           </div>
-          <div id="exploration-log-list" class="exploration-log-list"></div>
         </div>
         <div class="map-tools-bar" id="map-tools-bar"></div>
         <div class="map-viewport" id="map-viewport"></div>

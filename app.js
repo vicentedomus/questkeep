@@ -3710,8 +3710,7 @@ async function saveNoteToSupabase(q, r) {
 }
 
 /** Guarda una entrada en el log de exploración. */
-async function logExploration(tipo, titulo, descripcion, hexKey, bioma, roll) {
-  // Guardar en Supabase
+async function logExploration(tipo, titulo, descripcion, hexKey, bioma, roll, tripId, tier, dia) {
   try {
     await sbClient.from('exploration_log').insert({
       tipo, titulo,
@@ -3719,9 +3718,22 @@ async function logExploration(tipo, titulo, descripcion, hexKey, bioma, roll) {
       hex_key: hexKey || null,
       bioma: bioma || null,
       roll: roll || null,
+      trip_id: tripId || null,
+      tier: tier || null,
+      dia: dia || null,
     });
   } catch (e) {
     console.warn('[Fog] Log save failed:', e);
+  }
+}
+
+/** Batch insert de múltiples log entries (para viajes multi-día). */
+async function logExplorationBatch(entries) {
+  if (!entries.length) return;
+  try {
+    await sbClient.from('exploration_log').insert(entries);
+  } catch (e) {
+    console.warn('[Fog] Log batch save failed:', e);
   }
 }
 
@@ -3729,7 +3741,7 @@ async function logExploration(tipo, titulo, descripcion, hexKey, bioma, roll) {
 async function loadExplorationLog() {
   try {
     const { data, error } = await sbClient.from('exploration_log')
-      .select('*').order('created_at', { ascending: false }).limit(50);
+      .select('*').order('created_at', { ascending: false }).limit(200);
     if (error) { console.warn('[Fog] Log load error:', error.message); return []; }
     return data || [];
   } catch (e) {
@@ -4207,6 +4219,7 @@ function saveDiscoveredRegions() {
  */
 function triggerExploration(revealedKeys) {
   if (typeof HexExplore === 'undefined') return;
+  if (!isDM()) return;
   loadDiscoveredRegions();
 
   // Filtrar: solo hexes que no se habian descubierto antes (first-time-only)
@@ -4254,9 +4267,15 @@ function triggerExploration(revealedKeys) {
   // Guardar hexes descubiertos en Supabase
   saveFogToSupabase(newHexKeys);
 
-  // Encuentro aleatorio
+  // Encuentro aleatorio — escalar por tier de dificultad del hex
   if (biomeForEncounter) {
-    const result = HexExplore.explorar(biomeForEncounter);
+    let tierIdx = 0;
+    if (typeof HexDifficulty !== 'undefined') {
+      const { q, r } = HexGrid.parseHexKey(newHexKeys[0]);
+      const diff = HexDifficulty.getDifficulty(q, r);
+      tierIdx = diff.tier - 1; // tier 1-4 -> idx 0-3
+    }
+    const result = HexExplore.explorar(biomeForEncounter, tierIdx);
     if (result.tipo !== 'nada') {
       logExploration(result.tipo, result.tipo, result.resultado, newHexKeys[0], biomeForEncounter, result.roll);
       const delay = newRegions.size > 0 ? 3500 : 200;
@@ -4299,18 +4318,19 @@ function showEncounterToast(result) {
     document.body.appendChild(toast);
   }
 
-  const icons = { clima: '\u26C8', social: '\uD83D\uDDE3', combate: '\u2694' };
-  const labels = { clima: 'Clima', social: 'Encuentro Social', combate: 'Combate' };
+  const icons = { clima: '\u26C8', social: '\uD83D\uDDE3', combate: '\u2694', 'señal': '\uD83D\uDC3E' };
+  const labels = { clima: 'Clima', social: 'Encuentro Social', combate: 'Combate', 'señal': 'Señal / Rastro' };
   const icon = icons[result.tipo] || '\u2753';
   const label = labels[result.tipo] || result.tipo;
+  const tierTag = result.tier ? ` · Tier ${result.tier}` : '';
 
   toast.innerHTML = `
     <div class="encounter-toast-header">
       <span class="encounter-toast-icon">${icon}</span>
       <span class="encounter-toast-label">${label}</span>
-      <span class="encounter-toast-roll">d100: ${result.roll}</span>
+      <span class="encounter-toast-roll">d100: ${result.roll}${tierTag}</span>
     </div>
-    <div class="encounter-toast-body">${result.resultado}</div>
+    <div class="encounter-toast-body">${(result.resultado || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</div>
     <button class="encounter-toast-close" onclick="this.parentElement.classList.remove('encounter-toast-show')">\u2715</button>
   `;
 
@@ -4331,9 +4351,9 @@ let explorationLogOpen = false;
 
 function toggleExplorationLog() {
   explorationLogOpen = !explorationLogOpen;
-  const panel = document.getElementById('exploration-log-panel');
+  const overlay = document.getElementById('exploration-log-overlay');
   const btn = document.getElementById('btn-exploration-log');
-  if (panel) panel.style.display = explorationLogOpen ? '' : 'none';
+  if (overlay) overlay.style.display = explorationLogOpen ? '' : 'none';
   if (btn) btn.classList.toggle('active', explorationLogOpen);
   if (explorationLogOpen) renderExplorationLog();
 }
@@ -4341,36 +4361,110 @@ function toggleExplorationLog() {
 async function renderExplorationLog() {
   const list = document.getElementById('exploration-log-list');
   if (!list) return;
-  list.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);padding:12px">Cargando...</div>';
+  list.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);padding:20px">Cargando...</div>';
 
   const entries = await loadExplorationLog();
   if (!entries.length) {
-    list.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);padding:12px">Sin descubrimientos aún.</div>';
+    list.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);padding:20px">Sin descubrimientos aún.</div>';
     return;
   }
 
-  const icons = { region: '🏔', clima: '⛈', social: '🗣', combate: '⚔', viaje: '🚶' };
-  const labels = { region: 'Región', clima: 'Clima', social: 'Social', combate: 'Combate', viaje: 'Viaje' };
+  const icons = {
+    region: '🏔', clima: '⛈', social: '🗣', combate: '⚔',
+    viaje: '🚶', 'señal': '🐾', nada: '—',
+  };
+  const tierColors = ['#50dc78', '#c8be32', '#d27828', '#a032b4'];
 
-  list.innerHTML = entries.map(e => {
-    const icon = icons[e.tipo] || '❓';
-    const label = labels[e.tipo] || e.tipo;
-    const date = new Date(e.created_at);
-    const time = date.toLocaleDateString('es', { day: 'numeric', month: 'short' }) + ' ' +
-                 date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-    return `
-      <div class="exploration-log-entry">
-        <div class="exploration-log-entry-header">
-          <span class="exploration-log-icon">${icon}</span>
-          <span class="exploration-log-label">${label}</span>
-          ${e.roll ? `<span class="exploration-log-roll">d100: ${e.roll}</span>` : ''}
-          <span class="exploration-log-time">${time}</span>
-        </div>
-        <div class="exploration-log-title">${e.titulo}</div>
-        ${e.descripcion ? `<div class="exploration-log-desc">${e.descripcion}</div>` : ''}
-      </div>
-    `;
-  }).join('');
+  // Agrupar por trip_id
+  const trips = [];
+  const standalone = [];
+
+  // Entries vienen ordenadas desc por created_at
+  const tripMap = {};
+  for (const e of entries) {
+    if (e.trip_id) {
+      if (!tripMap[e.trip_id]) tripMap[e.trip_id] = [];
+      tripMap[e.trip_id].push(e);
+    } else {
+      standalone.push(e);
+    }
+  }
+
+  // Convertir trips a array ordenado (el viaje header primero, luego días por orden)
+  for (const [tripId, tripEntries] of Object.entries(tripMap)) {
+    const header = tripEntries.find(e => e.tipo === 'viaje');
+    const days = tripEntries.filter(e => e.tipo !== 'viaje' && e.tipo !== 'region')
+      .sort((a, b) => (a.dia || 0) - (b.dia || 0));
+    const regions = tripEntries.filter(e => e.tipo === 'region');
+    trips.push({ header, days, regions, created: header ? header.created_at : tripEntries[0].created_at });
+  }
+  trips.sort((a, b) => new Date(b.created) - new Date(a.created));
+
+  // Merge trips y standalone en orden cronológico
+  const allItems = [];
+  for (const trip of trips) allItems.push({ type: 'trip', data: trip, date: new Date(trip.created) });
+  for (const e of standalone) allItems.push({ type: 'standalone', data: e, date: new Date(e.created_at) });
+  allItems.sort((a, b) => b.date - a.date);
+
+  let html = '';
+
+  for (const item of allItems) {
+    if (item.type === 'trip') {
+      const trip = item.data;
+      const time = item.date.toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' +
+                   item.date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+
+      html += `<div class="elog-trip">`;
+      html += `<div class="elog-trip-header">`;
+      html += `<span class="elog-trip-icon">🚶</span>`;
+      html += `<span class="elog-trip-title">${trip.header ? trip.header.titulo : 'Viaje'}</span>`;
+      html += `<span class="elog-trip-time">${time}</span>`;
+      html += `</div>`;
+
+      if (trip.header && trip.header.descripcion) {
+        html += `<div class="elog-trip-summary">${trip.header.descripcion}</div>`;
+      }
+
+      // Regiones descubiertas
+      for (const r of trip.regions) {
+        html += `<div class="elog-day"><span class="elog-day-icon">🏔</span> Nueva región: <strong>${r.titulo}</strong></div>`;
+      }
+
+      // Días
+      for (const day of trip.days) {
+        const icon = icons[day.tipo] || '❓';
+        const tierDot = day.tier ? `<span class="elog-tier-dot" style="background:${tierColors[day.tier - 1] || '#888'}"></span>` : '';
+        const rollTag = day.roll ? `<span class="elog-roll">d100: ${day.roll}</span>` : '';
+
+        html += `<div class="elog-day">`;
+        html += `<div class="elog-day-header">`;
+        html += `${tierDot}<span class="elog-day-title">${day.titulo}</span>${rollTag}`;
+        html += `</div>`;
+        if (day.descripcion && day.tipo !== 'nada') {
+          const desc = day.descripcion.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+          html += `<div class="elog-day-result"><span class="elog-day-icon">${icon}</span> ${desc}</div>`;
+        } else {
+          html += `<div class="elog-day-result elog-day-nada">Sin novedad</div>`;
+        }
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+    } else {
+      const e = item.data;
+      const icon = icons[e.tipo] || '❓';
+      const time = item.date.toLocaleDateString('es', { day: 'numeric', month: 'short' }) + ' ' +
+                   item.date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+      html += `<div class="elog-standalone">`;
+      html += `<span class="elog-day-icon">${icon}</span> `;
+      html += `<strong>${e.titulo}</strong>`;
+      if (e.descripcion) html += ` — ${e.descripcion}`;
+      html += `<span class="elog-trip-time" style="float:right">${time}</span>`;
+      html += `</div>`;
+    }
+  }
+
+  list.innerHTML = html;
 }
 
 // =====================================================================
@@ -4694,19 +4788,63 @@ function cancelTravel() {
 }
 
 /**
- * Ejecuta el viaje planeado hex por hex.
+ * Ejecuta el viaje planeado hex por hex, tirando encuentros por día.
  */
 function executeTravel() {
   if (partyPath.length < 2) return;
+  if (typeof HexExplore === 'undefined') return;
 
-  const pathToTravel = partyPath.slice(1); // skip posicion actual
+  const pathToTravel = partyPath.slice(1);
   const allRevealedKeys = [];
+  const tripId = 'trip_' + Date.now();
+  const startDay = Math.ceil(partyTotalDays) || 1;
+
+  // --- Fase 1: Construir timeline de días ---
+  // Cada hex tiene un tiempo de viaje. Acumulamos tiempo y cada vez que
+  // cruzamos un límite de día, registramos un encuentro.
+  let dayAccum = partyTotalDays - Math.floor(partyTotalDays); // fraccion del dia actual
+  const dayEntries = []; // { dia, hexKey, biome, tier, encounter }
 
   for (const h of pathToTravel) {
-    // Calcular tiempo
     const ctx = detectHexContext(h.q, h.r);
     const tt = HexExplore.travelTime(ctx.biome, partySpeed);
-    partyTotalDays += tt.days;
+    const hexBiome = ctx.biome;
+    const hexKey = HexGrid.hexKey(h.q, h.r);
+
+    // Tier del hex
+    let tierIdx = 0;
+    if (typeof HexDifficulty !== 'undefined') {
+      const diff = HexDifficulty.getDifficulty(h.q, h.r);
+      tierIdx = diff.tier - 1;
+    }
+
+    let timeLeft = tt.days;
+
+    while (timeLeft > 0) {
+      const timeUntilNextDay = 1.0 - dayAccum;
+
+      if (timeLeft >= timeUntilNextDay) {
+        // Completamos un día en este hex → tirar encuentro
+        dayAccum = 0;
+        timeLeft -= timeUntilNextDay;
+        partyTotalDays += timeUntilNextDay;
+
+        const currentDay = Math.ceil(partyTotalDays);
+        const encounter = HexExplore.explorar(hexBiome, tierIdx);
+        dayEntries.push({
+          dia: currentDay,
+          hexKey,
+          biome: hexBiome,
+          tier: tierIdx + 1,
+          encounter,
+        });
+      } else {
+        // No alcanza para completar el día, acumular y pasar al siguiente hex
+        dayAccum += timeLeft;
+        partyTotalDays += timeLeft;
+        timeLeft = 0;
+      }
+    }
 
     // Mover party
     partyPosition = { q: h.q, r: h.r };
@@ -4721,7 +4859,7 @@ function executeTravel() {
     }
   }
 
-  // Guardar todo
+  // --- Fase 2: Persistir ---
   saveFogData();
   savePartyData();
   if (allRevealedKeys.length) {
@@ -4731,13 +4869,71 @@ function executeTravel() {
   renderPartyToken();
   initPartyDrag();
 
-  // Log del viaje completo
-  const summary = computeTravelSummary();
-  if (summary) {
-    const ttTotal = { days: summary.totalDays, fullDays: Math.floor(summary.totalDays), hours: Math.round((summary.totalDays - Math.floor(summary.totalDays)) * 24) };
-    logExploration('viaje', `Viaje de ${summary.hexCount} hexes`,
-      `${HexExplore.formatTravelTime(ttTotal)} — Día ${Math.ceil(partyTotalDays)}`,
-      HexGrid.hexKey(partyPosition.q, partyPosition.r), null, null);
+  // --- Fase 3: Guardar log del viaje ---
+  const endDay = Math.ceil(partyTotalDays);
+  const totalDays = endDay - startDay + (dayEntries.length > 0 ? 0 : 1);
+  const logEntries = [];
+
+  // Header del viaje
+  logEntries.push({
+    tipo: 'viaje',
+    titulo: `Viaje — Día ${startDay} al ${endDay}`,
+    descripcion: `${pathToTravel.length} hexes, ${dayEntries.length} días de viaje`,
+    hex_key: HexGrid.hexKey(partyPosition.q, partyPosition.r),
+    bioma: null,
+    roll: null,
+    trip_id: tripId,
+    tier: null,
+    dia: null,
+  });
+
+  // Entrada por cada día
+  for (const de of dayEntries) {
+    const enc = de.encounter;
+    logEntries.push({
+      tipo: enc.tipo === 'nada' ? 'nada' : enc.tipo,
+      titulo: `Día ${de.dia} — ${de.biome || 'Desconocido'} (Tier ${de.tier})`,
+      descripcion: enc.tipo === 'nada' ? 'Sin novedad' : enc.resultado,
+      hex_key: de.hexKey,
+      bioma: de.biome,
+      roll: enc.roll,
+      trip_id: tripId,
+      tier: de.tier,
+      dia: de.dia,
+    });
+  }
+
+  logExplorationBatch(logEntries);
+
+  // --- Fase 4: Mostrar toast del primer encuentro relevante ---
+  const firstEvent = dayEntries.find(de => de.encounter.tipo !== 'nada');
+  if (firstEvent) {
+    const msg = `Día ${firstEvent.dia}: ${firstEvent.encounter.resultado}`;
+    showEncounterToast({
+      ...firstEvent.encounter,
+      resultado: msg,
+    });
+  }
+
+  // --- Fase 5: Regiones nuevas + banners ---
+  if (allRevealedKeys.length) {
+    loadDiscoveredRegions();
+    const newRegions = new Set();
+    for (const key of allRevealedKeys) {
+      const { q, r } = HexGrid.parseHexKey(key);
+      const ctx = detectHexContext(q, r);
+      if (ctx.region && !discoveredRegions.has(ctx.region)) {
+        newRegions.add(ctx.region);
+      }
+    }
+    if (newRegions.size > 0) {
+      for (const region of newRegions) {
+        discoveredRegions.add(region);
+        logExploration('region', region, null, allRevealedKeys[0], null, null, tripId);
+      }
+      saveDiscoveredRegions();
+      showRegionBanner([...newRegions][0]);
+    }
   }
 
   // Limpiar path
@@ -4750,9 +4946,11 @@ function executeTravel() {
   const dayEl = document.getElementById('party-day-count');
   if (dayEl) dayEl.textContent = Math.ceil(partyTotalDays) || 1;
 
-  // Trigger exploracion para hexes nuevos
-  if (allRevealedKeys.length) {
-    triggerExploration(allRevealedKeys);
+  // Abrir diario automáticamente para mostrar el viaje
+  if (dayEntries.length > 0 && !explorationLogOpen) {
+    toggleExplorationLog();
+  } else if (explorationLogOpen) {
+    renderExplorationLog();
   }
 }
 
