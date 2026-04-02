@@ -1,8 +1,10 @@
 /**
- * supabase-client.js — Capa de datos Supabase para dnd-halo
+ * supabase-client.js — Capa de datos Supabase
  */
 
-const sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+  db: { schema: CONFIG.SCHEMA },
+});
 
 // ── HELPERS ───────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@
 const CONFIG = {
   // Campaña
   SLUG:           CAMPAIGN.slug,
+  SCHEMA:         CAMPAIGN.schema || CAMPAIGN.slug.replace(/-/g, '_'),
   NAME:           CAMPAIGN.name,
   SUBTITLE:       CAMPAIGN.subtitle,
   HAS_MAP:        CAMPAIGN.hasMap,

@@ -14,16 +14,19 @@ let currentModalMode = null; // 'detail' | 'edit'
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const user = document.getElementById('username-input').value.trim();
     const pw = document.getElementById('password-input').value.trim();
     const errEl = document.getElementById('login-error');
-    if (!pw) return;
-    const role = await login(pw);
-    if (role) {
+    if (!user || !pw) return;
+    const role = await login(user, pw);
+    if (role === 'must_change') {
+      return; // showChangePasswordScreen ya se encargó
+    } else if (role) {
       errEl.textContent = '';
       bootApp();
     } else {
-      errEl.textContent = 'Contrase\u00f1a incorrecta. Int\u00e9ntalo de nuevo.';
-      document.getElementById('password-input').select();
+      errEl.textContent = 'Usuario o contrase\u00f1a incorrectos.';
+      document.getElementById('username-input').select();
     }
   });
 
