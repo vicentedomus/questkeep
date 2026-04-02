@@ -7,7 +7,7 @@ function corsHeaders(origin: string): Record<string, string> {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
 }
@@ -37,21 +37,27 @@ Deno.serve(async (req) => {
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
+  // Admin client for user management
+  const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
   // Verify the caller's JWT to ensure they are DM
   const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
   });
-  const { data: { user: caller } } = await callerClient.auth.getUser();
+  const { data: { user: callerJwt } } = await callerClient.auth.getUser();
+  if (!callerJwt) {
+    return jsonResponse({ error: "No autenticado" }, 401, headers);
+  }
+
+  // Fetch full user data via admin to get reliable user_metadata
+  const { data: { user: caller } } = await adminClient.auth.admin.getUserById(callerJwt.id);
   if (!caller || caller.user_metadata?.role !== "dm") {
     return jsonResponse({ error: "Solo el DM puede administrar usuarios" }, 403, headers);
   }
 
   const callerCampaign = caller.user_metadata?.campaign;
-
-  // Admin client for user management
-  const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
 
   const body = await req.json();
   const { action } = body;

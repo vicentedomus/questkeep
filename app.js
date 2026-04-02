@@ -3360,13 +3360,16 @@ function openUtilidad(id) {
 const MANAGE_USERS_URL = `${CONFIG.SUPABASE_URL}/functions/v1/manage-users`;
 
 async function manageUsersAPI(body) {
-  const session = await sbClient.auth.getSession();
-  const token = session.data.session?.access_token;
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (!session?.access_token) {
+    return { error: 'No hay sesión activa. Reloguéate.' };
+  }
   const res = await fetch(MANAGE_USERS_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': CONFIG.SUPABASE_ANON_KEY,
     },
     body: JSON.stringify(body),
   });
