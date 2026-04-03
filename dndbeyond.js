@@ -119,14 +119,69 @@ function ddbParseCharacter(d) {
   // Spells
   const spells = ddbParseSpells(d);
 
-  // Spell slots
-  const spellSlots = (d.spellSlots || [])
-    .filter(s => s.level > 0 && s.available > 0)
-    .map(s => ({
-      level: s.level,
-      used: s.used || 0,
-      available: s.available,
-    }));
+  // Spell slots — merge API tracking with class table for max
+  const classSlotTable = (d.classes || []).reduce((acc, c) => {
+    const lss = c.definition?.spellRules?.levelSpellSlots;
+    if (lss && c.level <= lss.length) {
+      const row = lss[c.level];
+      row.forEach((n, i) => { acc[i + 1] = (acc[i + 1] || 0) + n; });
+    }
+    return acc;
+  }, {});
+  const spellSlots = [];
+  for (let lvl = 1; lvl <= 9; lvl++) {
+    const tableMax = classSlotTable[lvl] || 0;
+    const apiSlot = (d.spellSlots || []).find(s => s.level === lvl);
+    const max = tableMax || (apiSlot ? apiSlot.available : 0);
+    const used = apiSlot ? (apiSlot.used || 0) : 0;
+    if (max > 0) spellSlots.push({ level: lvl, max, used });
+  }
+
+  // Class resources (Rage, Sorcery Points, Bardic Inspiration, etc.)
+  const classResources = [];
+  for (const source of ['class', 'race', 'feat']) {
+    for (const a of ((d.actions || {})[source] || [])) {
+      if (!a.limitedUse) continue;
+      let maxUses = a.limitedUse.maxUses || 0;
+      // If maxUses=0 and statModifierUsesId set, resolve from ability mod
+      if (maxUses === 0 && a.limitedUse.statModifierUsesId) {
+        const abilityKey = ABILITY_NAMES[a.limitedUse.statModifierUsesId];
+        if (abilityKey && abilities[abilityKey]) {
+          maxUses = Math.max(1, abilities[abilityKey].mod);
+        }
+      }
+      if (maxUses > 0) {
+        classResources.push({
+          name: a.name,
+          maxUses,
+          numberUsed: a.limitedUse.numberUsed || 0,
+          resetType: a.limitedUse.resetType, // 1=short rest, 2=long rest
+        });
+      }
+    }
+  }
+
+  // Item charges (magic items with limited uses)
+  const itemCharges = [];
+  for (const item of (d.inventory || [])) {
+    if (!item.limitedUse || !item.definition) continue;
+    let maxUses = item.limitedUse.maxUses || 0;
+    if (maxUses === 0 && item.limitedUse.statModifierUsesId) {
+      const abilityKey = ABILITY_NAMES[item.limitedUse.statModifierUsesId];
+      if (abilityKey && abilities[abilityKey]) {
+        maxUses = Math.max(1, abilities[abilityKey].mod);
+      }
+    }
+    if (maxUses > 0) {
+      itemCharges.push({
+        name: item.definition.name,
+        maxUses,
+        numberUsed: item.limitedUse.numberUsed || 0,
+        resetType: item.limitedUse.resetType,
+        resetDesc: item.limitedUse.resetTypeDescription || '',
+      });
+    }
+  }
 
   // Currencies
   const currencies = d.currencies || {};
@@ -159,6 +214,8 @@ function ddbParseCharacter(d) {
     equipment,
     spells,
     spellSlots,
+    classResources,
+    itemCharges,
     currencies,
     deathSaves,
     traits,
@@ -244,7 +301,227 @@ function ddbParseSpells(d) {
   return all;
 }
 
-// ── RENDER ───────────────────────────────────────────────────────────
+// ── RENDER: INTEGRATED CARD (for modal) ─────────────────────────────
+
+function ddbResetLabel(resetType) {
+  if (resetType === 1) return 'SR';
+  if (resetType === 2) return 'LR';
+  return '';
+}
+
+function ddbResourceDots(maxUses, numberUsed) {
+  const remaining = Math.max(0, maxUses - numberUsed);
+  let html = '';
+  for (let i = 0; i < maxUses; i++) {
+    html += `<span class="ddb-res-dot${i < remaining ? '' : ' ddb-res-dot-empty'}"></span>`;
+  }
+  return html;
+}
+
+/**
+ * Builds the integrated character card HTML for the modal.
+ * @param {object} char – parsed DDB character (from ddbParseCharacter)
+ * @param {object} p – Supabase personaje record (descripcion, jugador, items_magicos, etc.)
+ * @param {string} ddbId – D&D Beyond character ID
+ * @param {string} sbId – Supabase UUID
+ * @returns {string} HTML
+ */
+function ddbBuildIntegratedCard(char, p, ddbId, sbId) {
+  const classStr = char.classes.map(c => {
+    const sub = c.subclass ? ` (${escapeHtml(c.subclass)})` : '';
+    return `${escapeHtml(c.name)}${sub} ${c.level}`;
+  }).join(' / ');
+
+  let jugador = p.jugador || null;
+  if (jugador && typeof jugador === 'object') jugador = jugador.nombre;
+  if (typeof jugador === 'string') jugador = jugador.replace(/^\[?"?\\?"?|"?\\?"?\]?$/g, '').trim() || null;
+
+  // Abilities
+  const abilitiesHtml = Object.entries(char.abilities).map(([name, a]) => `
+    <div class="ddb-ability">
+      <div class="ddb-ability-name">${name}</div>
+      <div class="ddb-ability-mod">${a.mod >= 0 ? '+' : ''}${a.mod}</div>
+      <div class="ddb-ability-score">${a.total}</div>
+    </div>
+  `).join('');
+
+  // HP
+  const hpPercent = char.maxHP > 0 ? Math.max(0, (char.currentHP / char.maxHP) * 100) : 0;
+  const hpColor = hpPercent > 60 ? 'var(--accent)' : hpPercent > 30 ? '#d4a017' : '#8b0000';
+
+  // Speed
+  const speedStr = Object.entries(char.speeds)
+    .filter(([, v]) => v > 0)
+    .map(([type, v]) => `${v}ft ${type}`)
+    .join(', ') || '30ft';
+
+  // Resources (class + item charges)
+  const allResources = [...(char.classResources || []), ...(char.itemCharges || [])];
+  const resourcesHtml = allResources.length ? `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Recursos</div>
+      <div class="ddb-resources">
+        ${allResources.map(r => `
+          <div class="ddb-resource-row">
+            <span class="ddb-resource-name">${escapeHtml(r.name)}</span>
+            <span class="ddb-resource-dots">${ddbResourceDots(r.maxUses, r.numberUsed)}</span>
+            <span class="ddb-resource-meta">${(r.maxUses - r.numberUsed)}/${r.maxUses}</span>
+            <span class="ddb-resource-reset">${ddbResetLabel(r.resetType)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : '';
+
+  // Spell slots (support both new {max} and legacy {available} format)
+  const slots = (char.spellSlots || []).filter(s => (s.max || s.available || 0) > 0);
+  let slotsHtml = '';
+  if (slots.length) {
+    slotsHtml = `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Spell Slots</div>
+      <div class="ddb-slots">${slots.map(s => {
+        const max = s.max || s.available || 0;
+        const dots = [];
+        for (let i = 0; i < max; i++) {
+          dots.push(`<span class="ddb-slot${i < s.used ? ' ddb-slot-used' : ''}"></span>`);
+        }
+        return `<div class="ddb-slot-group"><span class="ddb-slot-label">${s.level}</span>${dots.join('')}</div>`;
+      }).join('')}</div>
+    </div>`;
+  }
+
+  // Spells
+  let spellsHtml = '';
+  if (char.spells && char.spells.length) {
+    const byLevel = {};
+    for (const s of char.spells) {
+      const key = s.level === 0 ? 'Cantrips' : `Nivel ${s.level}`;
+      if (!byLevel[key]) byLevel[key] = [];
+      byLevel[key].push(s);
+    }
+    spellsHtml = `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Hechizos</div>
+      ${Object.entries(byLevel).map(([lvl, spells]) => `
+        <div class="ddb-spell-level">
+          <div class="ddb-spell-level-title">${lvl}</div>
+          <div class="ddb-spell-list">${spells.map(s => {
+            const tags = [];
+            if (s.concentration) tags.push('C');
+            if (s.ritual) tags.push('R');
+            const tagStr = tags.length ? ` <span class="ddb-spell-tag">${tags.join(',')}</span>` : '';
+            return `<span class="ddb-spell${s.prepared ? ' ddb-prepared' : ''}">${escapeHtml(s.name)}${tagStr}</span>`;
+          }).join('')}</div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  // Equipment
+  const equippedItems = (char.equipment || []).filter(e => e.equipped);
+  const magicItems = (char.equipment || []).filter(e => e.magic && !e.equipped);
+  const equipHtml = equippedItems.length ? equippedItems.map(e =>
+    `<span class="ddb-equip-item${e.magic ? ' ddb-magic' : ''}">${escapeHtml(e.name)}${e.attuned ? ' ✦' : ''}</span>`
+  ).join('') : '';
+  const equipSection = (equippedItems.length || magicItems.length) ? `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Equipamiento</div>
+      <div class="ddb-equip-grid">${equipHtml}</div>
+      ${magicItems.length ? `<div class="ddb-equip-grid" style="margin-top:6px">${magicItems.map(e =>
+        `<span class="ddb-equip-item ddb-magic">${escapeHtml(e.name)}</span>`).join('')}</div>` : ''}
+    </div>` : '';
+
+  // Currencies
+  const { pp = 0, gp = 0, ep = 0, sp = 0, cp = 0 } = char.currencies || {};
+  const coins = [];
+  if (pp) coins.push(`${pp} pp`);
+  if (gp) coins.push(`${gp} gp`);
+  if (ep) coins.push(`${ep} ep`);
+  if (sp) coins.push(`${sp} sp`);
+  if (cp) coins.push(`${cp} cp`);
+  const coinsStr = coins.length ? coins.join(' · ') : '0 gp';
+
+  // Description (from Supabase)
+  const descHtml = p.descripcion ? `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Descripción</div>
+      <div class="ddb-desc">${escapeHtml(stripMentions(p.descripcion))}</div>
+    </div>` : '';
+
+  // Relations (items mágicos from Supabase)
+  const relHtml = (p.items_magicos && p.items_magicos.length) ? `
+    <div class="ddb-section">
+      <div class="ddb-section-title">Items Mágicos</div>
+      <div class="ddb-equip-grid">${p.items_magicos.map(i =>
+        `<span class="ddb-equip-item ddb-magic" style="cursor:pointer" onclick="event.stopPropagation();navigateToDetail('items','${i.notion_id}')">${escapeHtml(i.nombre)}</span>`
+      ).join('')}</div>
+    </div>` : '';
+
+  // Sync bar
+  const syncedAt = p.ddb_synced_at
+    ? new Date(p.ddb_synced_at).toLocaleString('es-CL', { day:'2-digit', month:'numeric', hour:'2-digit', minute:'2-digit' })
+    : null;
+
+  return `
+    <div class="ddb-sheet ddb-integrated">
+      <div class="ddb-header">
+        ${char.avatar ? `<img class="ddb-avatar" src="${char.avatar}" alt="${escapeHtml(char.name)}">` : ''}
+        <div class="ddb-identity">
+          <div class="ddb-name">${escapeHtml(char.name)}</div>
+          <div class="ddb-subtitle">${escapeHtml(char.race)} — ${classStr}</div>
+          ${jugador ? `<div class="ddb-player">Jugador: ${escapeHtml(jugador)}</div>` : ''}
+        </div>
+      </div>
+
+      <div class="ddb-core-stats">
+        <div class="ddb-stat-block">
+          <div class="ddb-stat-label">AC</div>
+          <div class="ddb-stat-value ddb-ac">${char.ac}</div>
+        </div>
+        <div class="ddb-stat-block">
+          <div class="ddb-stat-label">HP</div>
+          <div class="ddb-hp-bar">
+            <div class="ddb-hp-fill" style="width:${hpPercent}%;background:${hpColor}"></div>
+            <span class="ddb-hp-text">${char.currentHP}${char.tempHP ? `+${char.tempHP}` : ''} / ${char.maxHP}</span>
+          </div>
+        </div>
+        <div class="ddb-stat-block">
+          <div class="ddb-stat-label">Prof</div>
+          <div class="ddb-stat-value">+${char.profBonus}</div>
+        </div>
+        <div class="ddb-stat-block">
+          <div class="ddb-stat-label">Speed</div>
+          <div class="ddb-stat-value ddb-speed">${speedStr}</div>
+        </div>
+      </div>
+
+      <div class="ddb-abilities">${abilitiesHtml}</div>
+
+      ${resourcesHtml}
+      ${slotsHtml}
+      ${spellsHtml}
+      ${equipSection}
+
+      <div class="ddb-section">
+        <div class="ddb-section-title">Monedas</div>
+        <div class="ddb-coins">${coinsStr}</div>
+      </div>
+
+      ${descHtml}
+      ${relHtml}
+
+      <div class="ddb-action-bar">
+        <button class="btn btn-sm ddb-sync-btn" onclick="ddbManualSync('${ddbId}', '${sbId}', this)">
+          &#x21bb; Sincronizar
+        </button>
+        <a href="${escapeHtml(p.dndbeyond_url)}" target="_blank" rel="noopener" class="btn btn-sm">Abrir en D&D Beyond &#8599;</a>
+        ${syncedAt ? `<span class="ddb-sync-status" style="margin-left:auto">Última sync: ${syncedAt}</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ── RENDER: STANDALONE SHEET (legacy) ───────────────────────────────
 
 function ddbRenderSheet(char) {
   const classStr = char.classes.map(c => {
@@ -298,12 +575,14 @@ function ddbRenderSheet(char) {
     `).join('');
   }
 
-  // Spell slots
+  // Spell slots (support both new {max} and legacy {available} format)
+  const legacySlots = (char.spellSlots || []).filter(s => (s.max || s.available || 0) > 0);
   let slotsHtml = '';
-  if (char.spellSlots.length) {
-    slotsHtml = `<div class="ddb-slots">${char.spellSlots.map(s => {
+  if (legacySlots.length) {
+    slotsHtml = `<div class="ddb-slots">${legacySlots.map(s => {
+      const max = s.max || s.available || 0;
       const dots = [];
-      for (let i = 0; i < s.available; i++) {
+      for (let i = 0; i < max; i++) {
         dots.push(`<span class="ddb-slot${i < s.used ? ' ddb-slot-used' : ''}"></span>`);
       }
       return `<div class="ddb-slot-group"><span class="ddb-slot-label">${s.level}</span>${dots.join('')}</div>`;

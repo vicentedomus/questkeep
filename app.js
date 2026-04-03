@@ -643,6 +643,28 @@ function openDetail(section, data) {
   const body = document.getElementById('modal-body');
   let html = buildDetailHTML(section, data);
 
+  // Auto-refresh D&D Beyond data if PJ modal opened with stale ddb_data
+  if (section === 'personajes' && data.es_pj && data.dndbeyond_url && data.ddb_data && !data.ddb_data.classResources) {
+    const ddbId = ddbExtractId(data.dndbeyond_url);
+    const sbId = data._sbid || '';
+    if (ddbId) {
+      delete _ddbCache[ddbId];
+      ddbFetchCharacter(ddbId).then(char => {
+        ddbSyncToSupabase(sbId, char).then(() => {
+          // Re-render if modal still showing same character
+          if (currentModalData === data && currentModalMode === 'detail') {
+            const p = (DATA.players || []).find(pl => pl._sbid === sbId);
+            if (p) body.querySelector('.ddb-integrated')?.replaceWith(
+              Object.assign(document.createElement('div'), {
+                innerHTML: ddbBuildIntegratedCard(char, p, ddbId, sbId)
+              }).firstElementChild
+            );
+          }
+        });
+      }).catch(() => {});
+    }
+  }
+
   // Sección de notas de jugadores (colapsable)
   if (ENTITY_NOTES_SECTIONS.has(section) && data._sbid) {
     html += `<div class="entity-notes-section">
@@ -774,24 +796,17 @@ function buildDetailHTML(section, data) {
     }
     case 'personajes': {
       const p = data;
-      const jugador = p.jugador ? (typeof p.jugador === 'object' ? p.jugador.nombre : p.jugador) : null;
       const ddbId = ddbExtractId(p.dndbeyond_url);
       const sbId = p._sbid || '';
-      const syncedAt = p.ddb_synced_at ? new Date(p.ddb_synced_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null;
-      const ddbSection = ddbId ? `
-        <div class="detail-section" style="margin-top:12px">
-          <div class="ddb-toggle-bar">
-            <button class="btn btn-sm ddb-toggle-btn" onclick="ddbToggleSheet(this, '${ddbId}', '${sbId}')">
-              &#9862; Ver hoja D&D Beyond
-            </button>
-            <button class="btn btn-sm ddb-sync-btn" onclick="ddbManualSync('${ddbId}', '${sbId}', this)">
-              &#x21bb; Sincronizar
-            </button>
-            <a href="${escapeHtml(p.dndbeyond_url)}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:0.75rem">Abrir en D&D Beyond &#8599;</a>
-          </div>
-          ${syncedAt ? `<div class="ddb-sync-status">Última sync: ${syncedAt}</div>` : ''}
-          <div class="ddb-container" id="ddb-sheet-${ddbId}" style="display:none"></div>
-        </div>` : '';
+      const ddb = p.ddb_data;
+
+      // If PJ with D&D Beyond data, use integrated card
+      if (p.es_pj && ddbId && ddb) {
+        return ddbBuildIntegratedCard(ddb, p, ddbId, sbId);
+      }
+
+      // Fallback: simple rows for NPCs or PCs without D&D Beyond
+      const jugador = p.jugador ? (typeof p.jugador === 'object' ? p.jugador.nombre : p.jugador) : null;
       return [
         row('Clase', escapeHtml(p.clase)),
         p.subclase ? row('Subclase', escapeHtml(p.subclase)) : '',
@@ -802,7 +817,6 @@ function buildDetailHTML(section, data) {
         (p.hp_maximo !== null && p.hp_maximo !== undefined) ? row('HP M\u00e1x', p.hp_maximo) : '',
         textBlock('Descripci\u00f3n', p.descripcion),
         (p.items_magicos && p.items_magicos.length) ? `<div class="detail-section"><div class="detail-label">Items M\u00e1gicos</div><ul class="card-list">${p.items_magicos.map(i => `<li>${relChip('items', i.id, i.nombre)}</li>`).join('')}</ul></div>` : '',
-        ddbSection,
       ].join('');
     }
     case 'quests': {
@@ -1584,6 +1598,28 @@ function renderPersonajes() {
       return parts.length ? `<div class="ddb-spells-summary">&#10040; ${parts.join(', ')}</div>` : '';
     })() : '';
 
+    // Resource pills (Rage 3/3, Sorcery Points 4/4, etc.)
+    const resourcePills = (isPJ && ddb && ddb.classResources && ddb.classResources.length) ? (() => {
+      return `<div class="ddb-resource-pills">${ddb.classResources.slice(0, 3).map(r => {
+        const rem = r.maxUses - r.numberUsed;
+        const cls = rem === 0 ? ' ddb-resource-pill-empty' : rem <= Math.ceil(r.maxUses / 3) ? ' ddb-resource-pill-warn' : '';
+        return `<span class="ddb-resource-pill${cls}">${escapeHtml(r.name)} ${rem}/${r.maxUses}</span>`;
+      }).join('')}</div>`;
+    })() : '';
+
+    // Mini spell slot dots (support both {max} and legacy {available})
+    const slotsForGrid = (ddb && ddb.spellSlots || []).filter(s => (s.max || s.available || 0) > 0);
+    const slotDots = (isPJ && slotsForGrid.length) ? (() => {
+      return `<div class="ddb-slots-mini">${slotsForGrid.map(s => {
+        const max = s.max || s.available || 0;
+        const dots = [];
+        for (let i = 0; i < max; i++) {
+          dots.push(`<span class="ddb-slot-mini${i < s.used ? ' ddb-slot-mini-used' : ''}"></span>`);
+        }
+        return `<span class="ddb-slot-group-mini"><span class="ddb-slot-label-mini">${s.level}</span>${dots.join('')}</span>`;
+      }).join('')}</div>`;
+    })() : '';
+
     const itemsList = (p.items_magicos && p.items_magicos.length) ? `
       <div style="margin-top:10px">
         <div style="font-family:'Cinzel',serif;font-size:0.68rem;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:4px">ITEMS M\u00c1GICOS</div>
@@ -1603,6 +1639,8 @@ function renderPersonajes() {
         ${stats}
         ${abilitiesBar}
         ${hpBar}
+        ${resourcePills}
+        ${slotDots}
         ${spellsSummary}
         ${p.descripcion ? `<div class="card-desc">${escapeHtml(stripMentions(p.descripcion))}</div>` : ''}
         ${itemsList}
@@ -3508,20 +3546,24 @@ async function ddbManualSync(characterId, sbId, btn) {
     const ok = await ddbSyncToSupabase(sbId, char);
     if (ok) {
       btn.innerHTML = '&#x2713; Listo';
-      // Actualizar la hoja si está visible
-      const container = document.getElementById('ddb-sheet-' + characterId);
-      if (container && container.style.display !== 'none') {
-        container.innerHTML = ddbRenderSheet(char);
-        const ts = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-        container.insertAdjacentHTML('beforeend',
-          `<div class="ddb-sync-status">Sincronizado a las ${ts}</div>`);
+      // Re-render integrated card if open in modal
+      const integratedCard = btn.closest('.ddb-integrated');
+      if (integratedCard) {
+        const p = (DATA.players || []).find(pl => pl._sbid === sbId);
+        if (p) {
+          integratedCard.outerHTML = ddbBuildIntegratedCard(char, p, characterId, sbId);
+        }
+      } else {
+        // Legacy: update standalone sheet if visible
+        const container = document.getElementById('ddb-sheet-' + characterId);
+        if (container && container.style.display !== 'none') {
+          container.innerHTML = ddbRenderSheet(char);
+        }
+        const bar = btn.closest('.detail-section');
+        const oldStatus = bar?.querySelector('.ddb-sync-status');
+        const ts = new Date().toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+        if (oldStatus) oldStatus.textContent = `Última sync: ${ts}`;
       }
-      // Actualizar status en el toggle bar
-      const bar = btn.closest('.detail-section');
-      const oldStatus = bar?.querySelector('.ddb-sync-status');
-      const ts = new Date().toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-      if (oldStatus) oldStatus.textContent = `Última sync: ${ts}`;
-      else if (bar) btn.closest('.ddb-toggle-bar')?.insertAdjacentHTML('afterend', `<div class="ddb-sync-status">Última sync: ${ts}</div>`);
     } else {
       btn.innerHTML = '&#x2717; Error';
     }
