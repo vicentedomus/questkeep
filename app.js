@@ -634,6 +634,7 @@ function openDetailFromCard(el) {
 const ENTITY_NOTES_SECTIONS = new Set(['npcs','ciudades','establecimientos','lugares','items']);
 
 function openDetail(section, data) {
+  hidePreview();
   currentModalSection = section;
   currentModalData = data;
   currentModalMode = 'detail';
@@ -1142,14 +1143,11 @@ function initCampanaDrag() {
       e.preventDefault();
       col.classList.remove('campana-col-over');
       if (!campanaDragCol || campanaDragCol === col) return;
-      // Reordenar en el DOM
-      const rect = col.getBoundingClientRect();
-      const midX = rect.left + rect.width / 2;
-      if (e.clientX < midX) {
-        container.insertBefore(campanaDragCol, col);
-      } else {
-        container.insertBefore(campanaDragCol, col.nextSibling);
-      }
+      // Swap directo de posiciones en el DOM
+      const placeholder = document.createComment('');
+      container.replaceChild(placeholder, campanaDragCol);
+      container.replaceChild(campanaDragCol, col);
+      container.replaceChild(col, placeholder);
       // Guardar orden
       campanaColOrder = [...container.querySelectorAll('.campana-col')].map(c => c.dataset.col);
       try { localStorage.setItem('campana_col_order', JSON.stringify(campanaColOrder)); } catch {}
@@ -1188,6 +1186,43 @@ const CAMPANA_COL_TITLES = {
 
 const CAMPANA_COL_DEFS = [
   {
+    key: 'ciudades', dataKey: 'ciudades',
+    visFilter: c => isDM() || c.conocida_jugadores,
+    renderMini: (c, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="ciudades" data-entity-id="${c.id}" onclick="campanaClickMini(this, event)">
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(c.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
+        <div class="campana-mini-meta">${c.estado ? `<span class="campana-mini-dim">${escapeHtml(c.estado)}</span>` : ''}${c.poblacion ? `<span class="campana-mini-dim">Pob. ${c.poblacion.toLocaleString()}</span>` : ''}</div>
+      </div>`;
+    },
+    searchFields: ['nombre','estado','lider','region'],
+    filters: [
+      { id: 'estado', label: 'Reino', values: () => [...new Set((DATA.ciudades||[]).map(c=>c.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
+    ]
+  },
+  {
+    key: 'establecimientos', dataKey: 'establecimientos',
+    visFilter: e => isDM() || e.conocido_jugadores,
+    renderMini: (e, isRelated, isSelected) => {
+      const cls = ['campana-mini'];
+      if (isRelated) cls.push('campana-related');
+      if (isSelected) cls.push('campana-selected');
+      return `<div class="${cls.join(' ')}" data-section="establecimientos" data-entity-id="${e.id}" onclick="campanaClickMini(this, event)">
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(e.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
+        <div class="campana-mini-meta">${e.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(e.tipo)}</span>` : ''}${e.ciudad ? `<span class="campana-mini-dim">${escapeHtml(e.ciudad.nombre)}</span>` : ''}</div>
+      </div>`;
+    },
+    searchFields: ['nombre','tipo'],
+    searchRelFields: ['ciudad','dueno'],
+    searchRelMultiFields: ['quests'],
+    filters: [
+      { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
+      { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
+    ]
+  },
+  {
     key: 'npcs', dataKey: 'npcs',
     visFilter: n => isDM() || n.conocido_jugadores,
     renderMini: (n, isRelated, isSelected) => {
@@ -1205,23 +1240,6 @@ const CAMPANA_COL_DEFS = [
     filters: [
       { id: 'rol', label: 'Rol', values: () => [...new Set((DATA.npcs||[]).map(n=>n.rol).filter(Boolean))].sort(), match: (item,v) => item.rol === v },
       { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.npcs||[]).map(n=>n.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
-    ]
-  },
-  {
-    key: 'ciudades', dataKey: 'ciudades',
-    visFilter: c => isDM() || c.conocida_jugadores,
-    renderMini: (c, isRelated, isSelected) => {
-      const cls = ['campana-mini'];
-      if (isRelated) cls.push('campana-related');
-      if (isSelected) cls.push('campana-selected');
-      return `<div class="${cls.join(' ')}" data-section="ciudades" data-entity-id="${c.id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(c.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
-        <div class="campana-mini-meta">${c.estado ? `<span class="campana-mini-dim">${escapeHtml(c.estado)}</span>` : ''}${c.poblacion ? `<span class="campana-mini-dim">Pob. ${c.poblacion.toLocaleString()}</span>` : ''}</div>
-      </div>`;
-    },
-    searchFields: ['nombre','estado','lider','region'],
-    filters: [
-      { id: 'estado', label: 'Reino', values: () => [...new Set((DATA.ciudades||[]).map(c=>c.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
     ]
   },
   {
@@ -1244,24 +1262,6 @@ const CAMPANA_COL_DEFS = [
     ]
   },
   {
-    key: 'quests', dataKey: 'quests',
-    visFilter: q => isDM() || q.conocido_jugadores,
-    renderMini: (q, isRelated, isSelected) => {
-      const cls = ['campana-mini'];
-      if (isRelated) cls.push('campana-related');
-      if (isSelected) cls.push('campana-selected');
-      return `<div class="${cls.join(' ')}" data-section="quests" data-entity-id="${q.id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(q.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
-        <div class="campana-mini-meta">${estadoQuestBadge(q.estado)}</div>
-      </div>`;
-    },
-    searchFields: ['nombre','resumen','estado'],
-    searchRelMultiFields: ['quest_npcs','ciudades','lugares','establecimientos'],
-    filters: [
-      { id: 'estado', label: 'Estado', values: () => [...new Set((DATA.quests||[]).map(q=>q.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
-    ]
-  },
-  {
     key: 'items', dataKey: 'items',
     visFilter: i => isDM() || i.personaje !== null,
     renderMini: (i, isRelated, isSelected) => {
@@ -1281,23 +1281,21 @@ const CAMPANA_COL_DEFS = [
     ]
   },
   {
-    key: 'establecimientos', dataKey: 'establecimientos',
-    visFilter: e => isDM() || e.conocido_jugadores,
-    renderMini: (e, isRelated, isSelected) => {
+    key: 'quests', dataKey: 'quests',
+    visFilter: q => isDM() || q.conocido_jugadores,
+    renderMini: (q, isRelated, isSelected) => {
       const cls = ['campana-mini'];
       if (isRelated) cls.push('campana-related');
       if (isSelected) cls.push('campana-selected');
-      return `<div class="${cls.join(' ')}" data-section="establecimientos" data-entity-id="${e.id}" onclick="campanaClickMini(this, event)">
-        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(e.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
-        <div class="campana-mini-meta">${e.tipo ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(e.tipo)}</span>` : ''}${e.ciudad ? `<span class="campana-mini-dim">${escapeHtml(e.ciudad.nombre)}</span>` : ''}</div>
+      return `<div class="${cls.join(' ')}" data-section="quests" data-entity-id="${q.id}" onclick="campanaClickMini(this, event)">
+        <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(q.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
+        <div class="campana-mini-meta">${estadoQuestBadge(q.estado)}</div>
       </div>`;
     },
-    searchFields: ['nombre','tipo'],
-    searchRelFields: ['ciudad','dueno'],
-    searchRelMultiFields: ['quests'],
+    searchFields: ['nombre','resumen','estado'],
+    searchRelMultiFields: ['quest_npcs','ciudades','lugares','establecimientos'],
     filters: [
-      { id: 'tipo', label: 'Tipo', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.tipo).filter(Boolean))].sort(), match: (item,v) => item.tipo === v },
-      { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.establecimientos||[]).map(e=>e.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
+      { id: 'estado', label: 'Estado', values: () => [...new Set((DATA.quests||[]).map(q=>q.estado).filter(Boolean))].sort(), match: (item,v) => item.estado === v },
     ]
   }
 ];
@@ -2610,6 +2608,7 @@ function initSearchableSelects(container) {
 }
 
 function closeModal() {
+  hidePreview();
   document.getElementById('modal-overlay').classList.remove('open');
   document.getElementById('modal-body').classList.remove('is-detail');
   currentModalSection = null;
