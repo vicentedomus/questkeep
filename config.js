@@ -4,6 +4,6 @@ const CONFIG = {
   SUPABASE_URL:      'https://dwmzchtqjcblupmmklcl.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3bXpjaHRxamNibHVwbW1rbGNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMTI2NjMsImV4cCI6MjA4OTU4ODY2M30.MCYuO-O60I5heT0MzXeF8euTMFKEENFkm_QsAfinGDc',
   GITHUB_OWNER: 'vicentedomus',
-  GITHUB_REPO:  'dnd-halo',
+  GITHUB_REPO:  'questkeep',
   // GitHub token se guarda en localStorage del DM, nunca en este archivo
 };
