@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ENV_ORIGINS = Deno.env.get("ALLOWED_ORIGINS") || "";
-const DEFAULT_ORIGINS = "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://vicentedomus.github.io";
+const DEFAULT_ORIGINS = "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://vicentedomus.github.io,https://questkeep.vercel.app";
 const ALLOWED_ORIGINS = (ENV_ORIGINS ? `${ENV_ORIGINS},${DEFAULT_ORIGINS}` : DEFAULT_ORIGINS).split(",");
 
 function corsHeaders(origin: string): Record<string, string> {
