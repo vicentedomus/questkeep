@@ -4,7 +4,7 @@
    Se abre dentro de util-workspace (pestaña Utilidades)
    ============================================================= */
 
-const CHAT_STORAGE_KEY = 'halo-chat-history';
+const CHAT_STORAGE_KEY = () => `${CONFIG.SLUG}-chat-history`;
 const CHAT_EDGE_FN = `${CONFIG.SUPABASE_URL}/functions/v1/chat`;
 
 let chatMessages = []; // [{role, content}]
@@ -453,12 +453,14 @@ async function sendMessage(text) {
   updateSendButton();
 
   try {
+    const { data: { session: chatSession } } = await sbClient.auth.getSession();
     const response = await fetch(CHAT_EDGE_FN, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
-        'X-DM-Auth': 'halo-dm',
+        'Authorization': `Bearer ${chatSession?.access_token || CONFIG.SUPABASE_ANON_KEY}`,
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'x-campaign-slug': CONFIG.SLUG,
       },
       body: JSON.stringify({
         messages: chatMessages,
@@ -600,13 +602,13 @@ function showToast(msg) {
 // ── LOCAL STORAGE ────────────────────────────────────────────
 function saveChatHistory() {
   try {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages));
+    localStorage.setItem(CHAT_STORAGE_KEY(), JSON.stringify(chatMessages));
   } catch { /* quota exceeded */ }
 }
 
 function loadChatHistory() {
   try {
-    const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+    const saved = localStorage.getItem(CHAT_STORAGE_KEY());
     if (saved) {
       chatMessages = JSON.parse(saved);
       return true;
@@ -617,7 +619,7 @@ function loadChatHistory() {
 
 function clearChat() {
   chatMessages = [];
-  localStorage.removeItem(CHAT_STORAGE_KEY);
+  localStorage.removeItem(CHAT_STORAGE_KEY());
   undoStack.clear();
   const container = document.getElementById('chat-messages');
   if (container) container.innerHTML = '';

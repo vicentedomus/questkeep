@@ -75,6 +75,7 @@ async function loadSessionPlans() {
   try {
     const { data, error } = await sbClient.from('session_plans')
       .select('*')
+      .eq('campaign_slug', CONFIG.SLUG)
       .order('fecha_sesion', { ascending: false });
     if (error) throw new Error(error.message);
     sessionPlans = data || [];
@@ -801,12 +802,14 @@ async function generatePlan() {
   }, 3000);
 
   try {
+    const { data: { session: prepSession } } = await sbClient.auth.getSession();
     const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/generate-session-plan`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
-        'X-DM-Auth': 'halo-dm',
+        'Authorization': `Bearer ${prepSession?.access_token || CONFIG.SUPABASE_ANON_KEY}`,
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'x-campaign-slug': CONFIG.SLUG,
       },
       body: JSON.stringify({
         formData,
@@ -842,6 +845,7 @@ async function generatePlan() {
       input_data: formData,
       bloques,
       bloques_committed: {},
+      campaign_slug: CONFIG.SLUG,
     };
 
     const { data: saved, error: saveErr } = await sbClient.from('session_plans')
@@ -1173,12 +1177,14 @@ async function regenerateBloque(planId, bloqueKey) {
       .eq('id', planId)
       .single();
 
+    const { data: { session: regenSession } } = await sbClient.auth.getSession();
     const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/generate-session-plan`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
-        'X-DM-Auth': 'halo-dm',
+        'Authorization': `Bearer ${regenSession?.access_token || CONFIG.SUPABASE_ANON_KEY}`,
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'x-campaign-slug': CONFIG.SLUG,
       },
       body: JSON.stringify({
         formData: { ...(plan.input_data || {}), bloque_objetivo: bloqueKey },

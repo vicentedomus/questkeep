@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
   "https://vicentedomus.github.io",
@@ -7,8 +8,6 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:3000",
   "http://127.0.0.1:5500",
 ];
-
-const DM_PASSWORD = "halo-dm";
 
 const SYSTEM_PROMPT = `Eres el **Asistente de Campaña** de la campaña de D&D 5e llamada **Halo**.
 Tu creador y DM es Vicente. Lo tratas de "tú". Respondes siempre en español.
@@ -211,7 +210,7 @@ function corsHeaders(origin: string): Record<string, string> {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Allow-Headers": "authorization, x-dm-auth, content-type",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-campaign-slug",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
 }
@@ -231,10 +230,37 @@ Deno.serve(async (req) => {
     });
   }
 
-  const dmAuth = req.headers.get("x-dm-auth");
-  if (dmAuth !== DM_PASSWORD) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+  // Verify JWT + membership in campaign 'halo'
+  const authHeader = req.headers.get("authorization") || "";
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: { user: caller } } = await callerClient.auth.getUser();
+  if (!caller) {
+    return new Response(JSON.stringify({ error: "No autenticado" }), {
       status: 401,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  // IA solo disponible para miembros de Halo
+  const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: membership } = await adminClient
+    .from("campaign_members")
+    .select("role")
+    .eq("user_id", caller.id)
+    .eq("campaign", "halo")
+    .single();
+
+  if (!membership) {
+    return new Response(JSON.stringify({ error: "Chat solo disponible para campaña Halo" }), {
+      status: 403,
       headers: { ...headers, "Content-Type": "application/json" },
     });
   }

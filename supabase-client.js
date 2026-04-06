@@ -89,6 +89,7 @@ const ARRAY_FIELDS = new Set(['jugadores_presentes', 'jugador']); // text[] en B
 // ── LOAD ALL DATA ─────────────────────────────────────────────────────
 
 async function loadAllData() {
+  const slug = CONFIG.SLUG;
   const [
     ciudadesRes, personajesRes, questsRes, notasDmRes, notasJugadoresRes,
     npcsRes, establecimientosRes, itemsRes, lugaresRes,
@@ -99,16 +100,16 @@ async function loadAllData() {
     monstruosRes,
     itemsCatalogRes,
   ] = await Promise.all([
-    sbClient.from('ciudades').select('*').eq('archived', false),
-    sbClient.from('personajes').select('*').eq('archived', false),
-    sbClient.from('quests').select('*').eq('archived', false),
-    sbClient.from('notas_dm').select('*').eq('archived', false),
-    sbClient.from('notas_jugadores').select('*').eq('archived', false),
-    sbClient.from('npcs').select('*, ciudad:ciudad_id(id,nombre), establecimiento:establecimiento_id(id,nombre)').eq('archived', false),
-    sbClient.from('establecimientos').select('*, ciudad:ciudad_id(id,nombre), dueno:dueno_id(id,nombre)').eq('archived', false),
-    sbClient.from('items').select('*, personaje:personaje_id(id,nombre)').eq('archived', false),
-    sbClient.from('lugares').select('*, ciudad:ciudad_id(id,nombre)').eq('archived', false),
-    // Junction tables con datos relacionados para construir refs
+    sbClient.from('ciudades').select('*').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('personajes').select('*').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('quests').select('*').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('notas_dm').select('*').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('notas_jugadores').select('*').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('npcs').select('*, ciudad:ciudad_id(id,nombre), establecimiento:establecimiento_id(id,nombre)').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('establecimientos').select('*, ciudad:ciudad_id(id,nombre), dueno:dueno_id(id,nombre)').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('items').select('*, personaje:personaje_id(id,nombre)').eq('archived', false).eq('campaign_slug', slug),
+    sbClient.from('lugares').select('*, ciudad:ciudad_id(id,nombre)').eq('archived', false).eq('campaign_slug', slug),
+    // Junction tables — sin campaign_slug, aislamiento via tablas padre (RLS)
     sbClient.from('npcs_quests').select('npc_id, quest_id, npc:npcs(id,nombre), quest:quests(id,nombre)'),
     sbClient.from('quests_lugares').select('quest_id, lugar_id, quest:quests(id,nombre), lugar:lugares(id,nombre)'),
     sbClient.from('quests_ciudades').select('quest_id, ciudad:ciudades(id,nombre)'),
@@ -118,7 +119,8 @@ async function loadAllData() {
     sbClient.from('lugares_items').select('lugar_id, item:items(id,nombre)'),
     sbClient.from('notas_jugadores_items').select('nota_jugador_id, item:items(id,nombre)'),
     sbClient.from('npcs_items').select('npc_id, item:items(id,nombre)'),
-    sbClient.from('marcadores').select('*'),
+    sbClient.from('marcadores').select('*').eq('campaign_slug', slug),
+    // Catálogos compartidos — sin filtro campaign_slug
     sbClient.from('monstruos').select('*').eq('archived', false),
     sbClient.from('items_catalog').select('*').eq('archived', false),
   ]);
@@ -216,7 +218,7 @@ async function loadAllData() {
     const key = m.lugar_id;
     if (key) sbMarkers[key] = { x: Number(m.x), y: Number(m.y) };
   }
-  const stored = localStorage.getItem('map_markers');
+  const stored = localStorage.getItem(`${CONFIG.SLUG}_map_markers`);
   MAP_MARKERS = stored ? JSON.parse(stored) : sbMarkers;
 }
 
@@ -247,6 +249,7 @@ async function sbSave(dataKey, data, action) {
   let savedSbid = sbid;
 
   if (action === 'add') {
+    payload.campaign_slug = CONFIG.SLUG;
     let { data: created, error } = await sbClient.from(sbTable).insert(payload).select().single();
     // Si falla por columna desconocida, reintentar sin ese campo
     if (error && error.message && error.message.includes('column')) {
@@ -313,6 +316,7 @@ async function sbLoadEntityNote(entityType, entityId) {
     .select('contenido')
     .eq('entity_type', entityType)
     .eq('entity_id', entityId)
+    .eq('campaign_slug', CONFIG.SLUG)
     .maybeSingle();
   if (error) { console.warn('entity_notes load:', error.message); return ''; }
   return data ? data.contenido : '';
@@ -320,7 +324,7 @@ async function sbLoadEntityNote(entityType, entityId) {
 
 async function sbSaveEntityNote(entityType, entityId, contenido) {
   const { error } = await sbClient.from('entity_notes').upsert(
-    { entity_type: entityType, entity_id: entityId, contenido, updated_at: new Date().toISOString() },
+    { entity_type: entityType, entity_id: entityId, campaign_slug: CONFIG.SLUG, contenido, updated_at: new Date().toISOString() },
     { onConflict: 'entity_type,entity_id' }
   );
   if (error) throw new Error(error.message);
@@ -332,7 +336,7 @@ async function sbUpsertMarker(lugarId, x, y) {
   const lugar = (DATA.lugares || []).find(l => l.id === lugarId);
   if (!lugar || !lugar._sbid) return;
   const { error } = await sbClient.from('marcadores').upsert(
-    { lugar_id: lugar._sbid, x, y },
+    { lugar_id: lugar._sbid, x, y, campaign_slug: CONFIG.SLUG },
     { onConflict: 'lugar_id' }
   );
   if (error) console.warn('Marker upsert failed:', error.message);

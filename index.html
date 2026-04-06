@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HALO — Campaña D&D</title>
+  <title>Campaña D&D</title>
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#131313">
@@ -27,7 +27,7 @@
     <div class="nail ntl"></div><div class="nail ntr"></div>
     <div class="nail nbl"></div><div class="nail nbr"></div>
     <div class="parchment">
-      <div class="login-logo">HALO</div>
+      <div class="login-logo" id="login-logo">HALO</div>
       <div class="login-subtitle">Campaña de Dungeons &amp; Dragons</div>
       <div class="login-divider"></div>
       <form id="login-form" autocomplete="off">
@@ -36,6 +36,9 @@
         <button type="submit" class="btn-login">&#9660; Entrar al Reino &#9660;</button>
       </form>
       <div class="login-error" id="login-error"></div>
+      <div style="margin-top:16px;text-align:center">
+        <button onclick="showCreateCampaign()" style="background:none;border:none;color:var(--on-surface-variant);cursor:pointer;font-size:.85rem;text-decoration:underline">Crear nueva campaña</button>
+      </div>
     </div>
   </div>
 </div>
@@ -47,7 +50,7 @@
   <aside id="sidebar">
     <div class="sidebar-brand">
       <div class="sidebar-logo">HALO</div>
-      <div class="sidebar-subtitle">The Obsidian Archive</div>
+      <div class="sidebar-subtitle">Campaign Manager</div>
     </div>
     <nav id="tab-bar">
       <button class="tab-btn active" data-tab="campana">
@@ -120,6 +123,10 @@
         <button class="btn dm-only btn-sm" onclick="recargarDatos()" title="Recargar datos">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           <span>Recargar</span>
+        </button>
+        <button class="btn btn-sm" onclick="switchCampaign()" title="Cambiar campaña">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <span>Campaña</span>
         </button>
         <button class="btn btn-danger" onclick="logout()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

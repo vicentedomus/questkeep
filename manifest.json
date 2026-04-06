@@ -1,6 +1,6 @@
 {
-  "name": "HALO — Campaña D&D",
-  "short_name": "HALO",
+  "name": "QuestKeep — D&D Campaign Manager",
+  "short_name": "QuestKeep",
   "description": "Compendio interactivo de la campaña de Dungeons & Dragons",
   "start_url": "/",
   "display": "standalone",

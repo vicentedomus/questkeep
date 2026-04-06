@@ -1,5 +1,5 @@
 /* =============================================================
-   HALO — D&D Campaign Manager
+   QuestKeep — D&D Campaign Manager (Multi-Campaign)
    app.js — Full application logic
    ============================================================= */
 
@@ -23,7 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return; // showChangePasswordScreen() ya se encargó
     }
     if (result === 'no_access') {
-      errEl.textContent = 'No tienes acceso a esta campaña.';
+      errEl.textContent = 'No tienes acceso a ninguna campaña.';
+      return;
+    }
+    if (result === 'select_campaign') {
+      errEl.textContent = '';
+      showCampaignSelector();
       return;
     }
     if (result) {
@@ -35,7 +40,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  initAuth().then(() => { if (isLoggedIn()) bootApp(); });
+  initAuth().then(() => {
+    if (isLoggedIn() && CONFIG.SLUG) {
+      bootApp();
+    } else if (window._pendingMemberships) {
+      showCampaignSelector();
+    }
+  });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -58,6 +69,16 @@ async function bootApp() {
   const app = document.getElementById('app');
   app.classList.add('visible');
   if (isDM()) app.classList.add('is-dm');
+
+  // Branding dinámico
+  const campaignName = CONFIG.CAMPAIGN_NAME || CONFIG.SLUG || 'Campaña';
+  const sidebarLogo = document.querySelector('.sidebar-logo');
+  if (sidebarLogo) sidebarLogo.textContent = campaignName.toUpperCase();
+  document.title = `${campaignName} — Campaña D&D`;
+
+  // Tabs exclusivas de Halo: mapa
+  const mapaTab = document.querySelector('[data-tab="mapa"]');
+  if (mapaTab) mapaTab.style.display = CONFIG.SLUG === 'halo' ? '' : 'none';
 
   await loadData();
   const titleEl = document.getElementById('header-section-title');
@@ -1158,7 +1179,7 @@ function initCampanaDrag() {
       container.replaceChild(col, placeholder);
       // Guardar orden
       campanaColOrder = [...container.querySelectorAll('.campana-col')].map(c => c.dataset.col);
-      try { localStorage.setItem('campana_col_order', JSON.stringify(campanaColOrder)); } catch {}
+      try { localStorage.setItem(`${CONFIG.SLUG}_col_order`, JSON.stringify(campanaColOrder)); } catch {}
     });
   });
 }
@@ -1166,7 +1187,7 @@ function initCampanaDrag() {
 // Restaurar orden de columnas desde localStorage
 function restoreCampanaColOrder() {
   try {
-    const saved = JSON.parse(localStorage.getItem('campana_col_order'));
+    const saved = JSON.parse(localStorage.getItem(`${CONFIG.SLUG}_col_order`));
     if (saved && Array.isArray(saved)) {
       campanaColOrder = saved;
       return;
@@ -1315,7 +1336,7 @@ const campanaFilters = {};
 function campanaInitVisibleCols() {
   if (campanaVisibleCols) return;
   try {
-    const saved = JSON.parse(localStorage.getItem('campana_visible_cols'));
+    const saved = JSON.parse(localStorage.getItem(`${CONFIG.SLUG}_visible_cols`));
     if (saved && Array.isArray(saved)) {
       campanaVisibleCols = new Set(saved);
       return;
@@ -1325,7 +1346,7 @@ function campanaInitVisibleCols() {
 }
 
 function campanaSaveVisibleCols() {
-  try { localStorage.setItem('campana_visible_cols', JSON.stringify([...campanaVisibleCols])); } catch {}
+  try { localStorage.setItem(`${CONFIG.SLUG}_visible_cols`, JSON.stringify([...campanaVisibleCols])); } catch {}
 }
 
 function campanaToggleCol(key) {
@@ -2076,7 +2097,7 @@ async function deleteRecord(section, entityId) {
     DATA[section] = arr.filter(r => r.id !== entityId);
     if (section === 'lugares' && MAP_MARKERS[entityId]) {
       delete MAP_MARKERS[entityId];
-      localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
+      localStorage.setItem(`${CONFIG.SLUG}_map_markers`, JSON.stringify(MAP_MARKERS));
     }
     closeModal();
     renderAll();
@@ -2089,7 +2110,7 @@ async function deleteRecord(section, entityId) {
 
 async function saveMarkerPosition(entityId, x, y) {
   MAP_MARKERS[entityId] = { x, y };
-  localStorage.setItem('map_markers', JSON.stringify(MAP_MARKERS));
+  localStorage.setItem(`${CONFIG.SLUG}_map_markers`, JSON.stringify(MAP_MARKERS));
   try { await sbUpsertMarker(entityId, x, y); } catch(e) { console.warn('Supabase marker sync failed:', e); }
 }
 
@@ -3363,19 +3384,27 @@ function renderMapMarkers() {
 
 // ── UTILIDADES ────────────────────────────────────────────────────
 
-const UTIL_CARDS = [
+const UTIL_CARDS_BASE = [
   { id: 'manage-users', title: 'Administrar Jugadores', desc: 'Crear, editar y eliminar usuarios de la campaña. Resetear contraseñas.', icon: '&#128101;' },
   { id: 'shop-gen', title: 'Generador de Inventario', desc: 'Genera inventario aleatorio de tiendas mágicas según ciudad y tipo de establecimiento.', icon: '&#9876;' },
-  { id: 'campaign-ai', title: 'Asistente de Campaña', desc: 'Chat IA para preparar sesiones, generar NPCs, diseñar encuentros y consultar la campaña.', icon: '&#9876;' },
-  { id: 'session-prep', title: 'Preparador de Sesiones', desc: 'Prepara sesiones perfectas con los 8 pasos de Sly Flourish.', icon: '&#128220;' },
   { id: 'bestiario', title: 'Bestiario', desc: 'Repositorio completo de monstruos con stats, acciones y filtros avanzados.', icon: '&#128050;' },
   { id: 'catalogo-items', title: 'Catálogo Items', desc: 'Catálogo de ítems mágicos con rareza, propiedades y descripciones.', icon: '&#128218;' },
 ];
+// IA solo disponible para Halo
+const UTIL_CARDS_HALO = [
+  { id: 'campaign-ai', title: 'Asistente de Campaña', desc: 'Chat IA para preparar sesiones, generar NPCs, diseñar encuentros y consultar la campaña.', icon: '&#9876;' },
+  { id: 'session-prep', title: 'Preparador de Sesiones', desc: 'Prepara sesiones perfectas con los 8 pasos de Sly Flourish.', icon: '&#128220;' },
+];
+function getUtilCards() {
+  const cards = [...UTIL_CARDS_BASE];
+  if (CONFIG.SLUG === 'halo') cards.splice(2, 0, ...UTIL_CARDS_HALO);
+  return cards;
+}
 
 function renderUtilidades() {
   const grid = document.getElementById('grid-utilidades');
   if (!grid) return;
-  grid.innerHTML = UTIL_CARDS.map(u => `
+  grid.innerHTML = getUtilCards().map(u => `
     <div class="card util-card" onclick="openUtilidad('${u.id}')" style="cursor:pointer">
       <div class="card-header">
         <div>
@@ -3822,11 +3851,11 @@ function renderDifficultyLayer() {
 // discovered = un explorador ha pasado por ahi (puede tener actividades)
 let FOG_DATA = {};
 let fogEnabled = true;
-const FOG_STORAGE_KEY = 'halo_fog_data';
+const FOG_STORAGE_KEY = () => `${CONFIG.SLUG}_fog_data`;
 
 function loadFogData() {
   try {
-    const stored = localStorage.getItem(FOG_STORAGE_KEY);
+    const stored = localStorage.getItem(FOG_STORAGE_KEY());
     if (stored) FOG_DATA = JSON.parse(stored);
   } catch (e) {
     console.warn('[Fog] Error loading fog data:', e);
@@ -3835,7 +3864,7 @@ function loadFogData() {
 
 function saveFogData() {
   try {
-    localStorage.setItem(FOG_STORAGE_KEY, JSON.stringify(FOG_DATA));
+    localStorage.setItem(FOG_STORAGE_KEY(), JSON.stringify(FOG_DATA));
   } catch (e) {
     console.warn('[Fog] Error saving fog data:', e);
   }
@@ -4390,18 +4419,18 @@ document.addEventListener('click', (e) => {
 
 // Regiones ya descubiertas (para no repetir banner)
 let discoveredRegions = new Set();
-const DISCOVERED_REGIONS_KEY = 'halo_discovered_regions';
+const DISCOVERED_REGIONS_KEY = () => `${CONFIG.SLUG}_discovered_regions`;
 
 function loadDiscoveredRegions() {
   try {
-    const stored = localStorage.getItem(DISCOVERED_REGIONS_KEY);
+    const stored = localStorage.getItem(DISCOVERED_REGIONS_KEY());
     if (stored) discoveredRegions = new Set(JSON.parse(stored));
   } catch (e) { /* ignore */ }
 }
 
 function saveDiscoveredRegions() {
   try {
-    localStorage.setItem(DISCOVERED_REGIONS_KEY, JSON.stringify([...discoveredRegions]));
+    localStorage.setItem(DISCOVERED_REGIONS_KEY(), JSON.stringify([...discoveredRegions]));
   } catch (e) { /* ignore */ }
 }
 
@@ -4671,11 +4700,11 @@ let partyTotalDays = 0;
 let partyWaypoints = []; // [{ q, r }] — waypoints del viaje planeado
 let partyPath = [];      // [{ q, r }] — path completo calculado (hex a hex)
 let partyDragging = false;
-const PARTY_STORAGE_KEY = 'halo_party';
+const PARTY_STORAGE_KEY = () => `${CONFIG.SLUG}_party`;
 
 function loadPartyData() {
   try {
-    const stored = localStorage.getItem(PARTY_STORAGE_KEY);
+    const stored = localStorage.getItem(PARTY_STORAGE_KEY());
     if (stored) {
       const d = JSON.parse(stored);
       partyPosition = d.position || null;
@@ -4688,7 +4717,7 @@ function loadPartyData() {
 
 function savePartyData() {
   try {
-    localStorage.setItem(PARTY_STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(PARTY_STORAGE_KEY(), JSON.stringify({
       position: partyPosition,
       speed: partySpeed,
       revealRadius: partyRevealRadius,
@@ -5488,4 +5517,117 @@ function initFogBrushTools() {
       brushBtn.classList.toggle('active', hexDebugMode);
     });
   }
+}
+
+// =====================================================================
+// CAMPAIGN SELECTOR — Pantalla de selección de campaña (post-login)
+// =====================================================================
+
+async function showCampaignSelector() {
+  const memberships = window._pendingMemberships || [];
+  const accessToken = window._pendingAccessToken || '';
+
+  // Fetch campaign names
+  const campaignNames = {};
+  for (const m of memberships) {
+    campaignNames[m.campaign] = await fetchCampaignName(m.campaign, accessToken);
+  }
+
+  const loginScreen = document.getElementById('login-screen');
+  loginScreen.innerHTML = `
+    <div class="stone-wall"></div>
+    <div class="frame-outer" style="max-width:500px">
+      <div class="parchment">
+        <div class="login-logo" style="font-size:1.6rem;margin-bottom:4px">&#9876;</div>
+        <div class="login-subtitle" style="margin-bottom:12px">Elige tu campaña</div>
+        <div class="login-divider"></div>
+        <div id="campaign-cards" style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+          ${memberships.map(m => `
+            <button class="btn-login campaign-card" data-slug="${m.campaign}" data-role="${m.role}" data-username="${m.username || ''}" style="text-align:left;padding:14px 18px">
+              <div style="font-size:1.1rem;font-weight:600">${campaignNames[m.campaign]}</div>
+              <div style="font-size:.8rem;opacity:.7;margin-top:4px">${m.role === 'dm' ? 'Dungeon Master' : 'Jugador'}</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.querySelectorAll('.campaign-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const slug = card.dataset.slug;
+      const role = card.dataset.role;
+      const username = card.dataset.username;
+      const name = campaignNames[slug];
+      selectCampaign(slug, name, role, username);
+      if (role === 'dm') sessionStorage.setItem('dm_password', 'jwt');
+      window._pendingMemberships = null;
+      window._pendingAccessToken = null;
+      bootApp();
+    });
+  });
+}
+
+// =====================================================================
+// CREATE CAMPAIGN — Pantalla de creación de nueva campaña
+// =====================================================================
+
+function showCreateCampaign() {
+  const loginScreen = document.getElementById('login-screen');
+  loginScreen.innerHTML = `
+    <div class="stone-wall"></div>
+    <div class="frame-outer" style="max-width:420px">
+      <div class="parchment">
+        <div class="login-logo" style="font-size:1.6rem;margin-bottom:4px">&#9876;</div>
+        <div class="login-subtitle" style="margin-bottom:12px">Crear nueva campaña</div>
+        <div class="login-divider"></div>
+        <form id="create-campaign-form" autocomplete="off" style="margin-top:16px">
+          <input type="text" id="cc-campaign-name" placeholder="Nombre de la campaña" required autofocus>
+          <input type="text" id="cc-username" placeholder="Tu nombre de DM" required>
+          <input type="password" id="cc-password" placeholder="Contraseña" minlength="6" required>
+          <button type="submit" class="btn-login">Crear campaña</button>
+        </form>
+        <div class="login-error" id="cc-error"></div>
+        <button onclick="window.location.reload()" style="background:none;border:none;color:var(--on-surface-variant);cursor:pointer;margin-top:12px;font-size:.85rem">&larr; Volver al login</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('create-campaign-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('cc-error');
+    const campaignName = document.getElementById('cc-campaign-name').value.trim();
+    const username = document.getElementById('cc-username').value.trim();
+    const password = document.getElementById('cc-password').value;
+
+    if (!campaignName || !username || !password) return;
+    if (password.length < 6) {
+      errEl.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+      return;
+    }
+
+    errEl.textContent = 'Creando campaña...';
+    try {
+      const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/create-campaign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignName, username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Error al crear campaña';
+        return;
+      }
+
+      // Login automático
+      const result = await login(username, password);
+      if (result && result !== 'no_access') {
+        bootApp();
+      } else {
+        errEl.textContent = 'Campaña creada. Inicia sesión manualmente.';
+      }
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  });
 }

@@ -1,13 +1,28 @@
 /**
  * auth.js — Autenticación multi-campaña.
- * Usa la tabla public.campaign_members para determinar el rol del usuario
- * en la campaña actual (definida por CONFIG.SLUG).
+ * Usa la tabla public.campaign_members para determinar el rol del usuario.
+ * Soporta múltiples membresías: si el usuario pertenece a 2+ campañas,
+ * muestra un selector; si solo a 1, auto-selecciona.
  */
 
-/** Consulta campaign_members vía REST (schema public) para obtener el rol en esta campaña */
-async function fetchMembership(userId, accessToken) {
+/** Trae TODAS las membresías del usuario (todas las campañas) */
+async function fetchAllMemberships(userId, accessToken) {
   const res = await fetch(
-    `${CONFIG.SUPABASE_URL}/rest/v1/campaign_members?user_id=eq.${userId}&campaign=eq.${CONFIG.SLUG}&select=role,username`,
+    `${CONFIG.SUPABASE_URL}/rest/v1/campaign_members?user_id=eq.${userId}&select=campaign,role,username`,
+    {
+      headers: {
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+  return await res.json();
+}
+
+/** Trae el nombre de la campaña desde la tabla campaigns */
+async function fetchCampaignName(slug, accessToken) {
+  const res = await fetch(
+    `${CONFIG.SUPABASE_URL}/rest/v1/campaigns?slug=eq.${slug}&select=nombre`,
     {
       headers: {
         'apikey': CONFIG.SUPABASE_ANON_KEY,
@@ -16,11 +31,29 @@ async function fetchMembership(userId, accessToken) {
     }
   );
   const rows = await res.json();
-  return rows.length ? rows[0] : null;
+  return rows.length ? rows[0].nombre : slug;
 }
 
-/** Restaura la sesión de Supabase al sessionStorage (para getters sincrónicos) */
+/** Setea la campaña activa en CONFIG y sessionStorage */
+function selectCampaign(slug, name, role, username) {
+  CONFIG.SLUG = slug;
+  CONFIG.CAMPAIGN_NAME = name;
+  sessionStorage.setItem('campaign_slug', slug);
+  sessionStorage.setItem('campaign_name', name);
+  sessionStorage.setItem('role', role);
+  sessionStorage.setItem('username', username);
+  sessionStorage.setItem('loggedIn', 'true');
+}
+
+/** Restaura la sesión al cargar la página */
 async function initAuth() {
+  // Restaurar CONFIG.SLUG desde sessionStorage si existe
+  const savedSlug = sessionStorage.getItem('campaign_slug');
+  if (savedSlug) {
+    CONFIG.SLUG = savedSlug;
+    CONFIG.CAMPAIGN_NAME = sessionStorage.getItem('campaign_name') || savedSlug;
+  }
+
   const { data: { session } } = await sbClient.auth.getSession();
   if (session && session.user) {
     const meta = session.user.user_metadata || {};
@@ -28,22 +61,47 @@ async function initAuth() {
       showChangePasswordScreen();
       return;
     }
-    const membership = await fetchMembership(session.user.id, session.access_token);
-    if (!membership) {
+
+    const memberships = await fetchAllMemberships(session.user.id, session.access_token);
+    if (!memberships || memberships.length === 0) {
       await sbClient.auth.signOut();
       sessionStorage.clear();
       return;
     }
-    sessionStorage.setItem('role', membership.role);
-    sessionStorage.setItem('username', membership.username || meta.username || '');
-    sessionStorage.setItem('loggedIn', 'true');
+
+    // Si ya hay slug guardado, verificar que sigue siendo válido
+    if (savedSlug) {
+      const current = memberships.find(m => m.campaign === savedSlug);
+      if (current) {
+        sessionStorage.setItem('role', current.role);
+        sessionStorage.setItem('username', current.username || meta.username || '');
+        sessionStorage.setItem('loggedIn', 'true');
+        return;
+      }
+      // Slug guardado ya no es válido, limpiar
+      sessionStorage.removeItem('campaign_slug');
+      sessionStorage.removeItem('campaign_name');
+      CONFIG.SLUG = null;
+      CONFIG.CAMPAIGN_NAME = null;
+    }
+
+    // Auto-seleccionar si solo tiene 1 membresía
+    if (memberships.length === 1) {
+      const m = memberships[0];
+      const name = await fetchCampaignName(m.campaign, session.access_token);
+      selectCampaign(m.campaign, name, m.role, m.username || meta.username || '');
+      return;
+    }
+
+    // 2+ membresías: guardar para mostrar selector
+    window._pendingMemberships = memberships;
+    window._pendingAccessToken = session.access_token;
   }
 }
 
 /**
  * Login con username + password.
- * El username se convierte a email: {username}@dnd.local
- * Después del login, verifica membresía en esta campaña via campaign_members.
+ * Retorna: role string, 'must_change', 'no_access', 'select_campaign', o null
  */
 async function login(username, password) {
   const email = `${username.toLowerCase()}@dnd.local`;
@@ -52,25 +110,29 @@ async function login(username, password) {
 
   const meta = data.user.user_metadata || {};
 
-  // Forzar cambio de contraseña en primer login
   if (meta.mustChangePassword) {
     showChangePasswordScreen();
     return 'must_change';
   }
 
-  // Verificar membresía en esta campaña
-  const membership = await fetchMembership(data.user.id, data.session.access_token);
-  if (!membership) {
+  const memberships = await fetchAllMemberships(data.user.id, data.session.access_token);
+  if (!memberships || memberships.length === 0) {
     await sbClient.auth.signOut();
     return 'no_access';
   }
 
-  const role = membership.role;
-  sessionStorage.setItem('role', role);
-  sessionStorage.setItem('username', membership.username || username);
-  sessionStorage.setItem('loggedIn', 'true');
-  if (role === 'dm') sessionStorage.setItem('dm_password', password);
-  return role;
+  if (memberships.length === 1) {
+    const m = memberships[0];
+    const name = await fetchCampaignName(m.campaign, data.session.access_token);
+    selectCampaign(m.campaign, name, m.role, m.username || username);
+    if (m.role === 'dm') sessionStorage.setItem('dm_password', password);
+    return m.role;
+  }
+
+  // 2+ membresías: necesita selector
+  window._pendingMemberships = memberships;
+  window._pendingAccessToken = data.session.access_token;
+  return 'select_campaign';
 }
 
 /** Cambia la contraseña del usuario logueado y quita el flag mustChangePassword */
@@ -81,15 +143,15 @@ async function changePassword(newPassword) {
   });
   if (error) return error.message;
 
-  // Restaurar sesión con la nueva contraseña
   const { data: { session } } = await sbClient.auth.getSession();
   if (session && session.user) {
-    const membership = await fetchMembership(session.user.id, session.access_token);
-    const role = membership ? membership.role : 'player';
-    sessionStorage.setItem('role', role);
-    sessionStorage.setItem('username', membership?.username || '');
-    sessionStorage.setItem('loggedIn', 'true');
-    if (role === 'dm') sessionStorage.setItem('dm_password', newPassword);
+    const memberships = await fetchAllMemberships(session.user.id, session.access_token);
+    if (memberships && memberships.length === 1) {
+      const m = memberships[0];
+      const name = await fetchCampaignName(m.campaign, session.access_token);
+      selectCampaign(m.campaign, name, m.role, m.username || '');
+      if (m.role === 'dm') sessionStorage.setItem('dm_password', newPassword);
+    }
   }
   return null;
 }
@@ -148,5 +210,33 @@ function isDM()        { return getRole() === 'dm'; }
 async function logout() {
   await sbClient.auth.signOut();
   sessionStorage.clear();
+  CONFIG.SLUG = null;
+  CONFIG.CAMPAIGN_NAME = null;
+  window.location.reload();
+}
+
+/** Cambia de campaña (vuelve al selector) */
+async function switchCampaign() {
+  sessionStorage.removeItem('campaign_slug');
+  sessionStorage.removeItem('campaign_name');
+  sessionStorage.removeItem('role');
+  sessionStorage.removeItem('loggedIn');
+  CONFIG.SLUG = null;
+  CONFIG.CAMPAIGN_NAME = null;
+
+  // Re-fetch membresías y mostrar selector sin reload
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (session && session.user) {
+    const memberships = await fetchAllMemberships(session.user.id, session.access_token);
+    if (memberships && memberships.length > 0) {
+      window._pendingMemberships = memberships;
+      window._pendingAccessToken = session.access_token;
+      // Mostrar login-screen y ocultar app
+      document.getElementById('app').classList.remove('visible');
+      document.getElementById('login-screen').style.display = '';
+      showCampaignSelector();
+      return;
+    }
+  }
   window.location.reload();
 }
