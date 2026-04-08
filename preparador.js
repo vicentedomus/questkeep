@@ -895,26 +895,93 @@ async function openPlanView(planId) {
 }
 
 // ── OPEN ENTITY DETAIL FROM PLANNER ──────────────────────────
-function openEntityDetail(nombre, bloqueKey) {
+// planData = datos del bloque del plan (fallback si no está en BD)
+function openEntityDetail(nombre, bloqueKey, planData) {
   const n = (nombre || '').trim().toLowerCase();
   if (!n) return;
-  if (bloqueKey === 'bloque_npcs' || bloqueKey === 'npcs') {
-    const npc = (DATA.npcs || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (npc) openDetail('npcs', npc);
-  } else if (bloqueKey === 'bloque_locaciones' || bloqueKey === 'locaciones') {
-    const lugar = (DATA.lugares || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (lugar) { openDetail('lugares', lugar); return; }
-    const ciudad = (DATA.ciudades || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (ciudad) { openDetail('ciudades', ciudad); return; }
-    const estab = (DATA.establecimientos || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (estab) openDetail('establecimientos', estab);
-  } else if (bloqueKey === 'bloque_tesoros' || bloqueKey === 'tesoros') {
-    const item = (DATA.items || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (item) openDetail('items', item);
-  } else if (bloqueKey === 'bloque_monstruos' || bloqueKey === 'monstruos') {
-    const m = (DATA.monstruos || []).find(x => (x.nombre || '').toLowerCase() === n);
-    if (m) openDetail('monstruos', m);
+
+  // Buscar en BD primero
+  let found = null, section = null;
+  const keyNorm = bloqueKey.replace('bloque_', '');
+
+  if (keyNorm === 'npcs') {
+    found = (DATA.npcs || []).find(x => (x.nombre || '').toLowerCase() === n);
+    section = 'npcs';
+  } else if (keyNorm === 'locaciones') {
+    found = (DATA.lugares || []).find(x => (x.nombre || '').toLowerCase() === n);
+    section = 'lugares';
+    if (!found) { found = (DATA.ciudades || []).find(x => (x.nombre || '').toLowerCase() === n); section = 'ciudades'; }
+    if (!found) { found = (DATA.establecimientos || []).find(x => (x.nombre || '').toLowerCase() === n); section = 'establecimientos'; }
+  } else if (keyNorm === 'tesoros') {
+    found = (DATA.items || []).find(x => (x.nombre || '').toLowerCase() === n);
+    section = 'items';
+  } else if (keyNorm === 'monstruos') {
+    found = (DATA.monstruos || []).find(x => (x.nombre || '').toLowerCase() === n);
+    section = 'monstruos';
   }
+
+  if (found) {
+    openDetail(section, found);
+    return;
+  }
+
+  // No está en BD — mostrar datos del plan en el modal
+  if (!planData) return;
+  showPlanEntityDetail(planData, keyNorm);
+}
+
+/** Muestra los datos de una entidad del plan que aún no está en BD */
+function showPlanEntityDetail(data, type) {
+  const title = document.getElementById('modal-title');
+  const body = document.getElementById('modal-body');
+  const footer = document.getElementById('modal-footer');
+  if (!title || !body) return;
+
+  title.textContent = data.nombre || 'Detalle';
+
+  let html = '<div class="detail-content">';
+
+  if (type === 'npcs') {
+    const rows = [
+      data.raza && `<div class="detail-row"><span class="detail-label">Raza</span><span>${escapeHtml(data.raza)}</span></div>`,
+      data.rol && `<div class="detail-row"><span class="detail-label">Rol</span><span class="npc-rol-badge">${escapeHtml(data.rol)}</span></div>`,
+      data.motivacion && `<div class="detail-row"><span class="detail-label">Motivación</span><span>${escapeHtml(data.motivacion)}</span></div>`,
+      data.tono && `<div class="detail-row"><span class="detail-label">Tono</span><span>${escapeHtml(data.tono)}</span></div>`,
+      data.frase && `<div class="detail-section"><div class="detail-label">Frase</div><div class="card-desc" style="font-style:italic">"${escapeHtml(data.frase)}"</div></div>`,
+      data.primera_impresion && data.primera_impresion !== 'Ya en BD' && `<div class="detail-section"><div class="detail-label">Primera impresión</div><div class="card-desc">${escapeHtml(data.primera_impresion)}</div></div>`,
+      data.notas_roleplay && data.notas_roleplay !== 'Ya en BD' && `<div class="detail-section"><div class="detail-label">Notas de roleplay</div><div class="card-desc">${escapeHtml(data.notas_roleplay)}</div></div>`,
+    ].filter(Boolean);
+    html += rows.join('');
+  } else if (type === 'locaciones') {
+    const rows = [
+      data.tipo && `<div class="detail-row"><span class="detail-label">Tipo</span><span class="badge tipo-badge">${escapeHtml(data.tipo)}</span></div>`,
+      data.region && `<div class="detail-row"><span class="detail-label">Región</span><span>${escapeHtml(data.region)}</span></div>`,
+      data.descripcion_exterior && `<div class="detail-section"><div class="detail-label">Exterior</div><div class="card-desc">${escapeHtml(data.descripcion_exterior)}</div></div>`,
+      data.descripcion_interior && `<div class="detail-section"><div class="detail-label">Interior</div><div class="card-desc">${escapeHtml(data.descripcion_interior)}</div></div>`,
+      !data.descripcion_exterior && !data.descripcion_interior && data.descripcion && data.descripcion !== 'Ya en BD' &&
+        `<div class="detail-section"><div class="detail-label">Descripción</div><div class="card-desc">${escapeHtml(data.descripcion)}</div></div>`,
+    ].filter(Boolean);
+    html += rows.join('');
+  } else if (type === 'tesoros') {
+    const rows = [
+      data.tipo && `<div class="detail-row"><span class="detail-label">Tipo</span><span class="badge tipo-badge">${escapeHtml(data.tipo)}</span></div>`,
+      data.rareza && `<div class="detail-row"><span class="detail-label">Rareza</span><span>${escapeHtml(data.rareza)}</span></div>`,
+      data.portador_sugerido && `<div class="detail-row"><span class="detail-label">Para</span><span>${escapeHtml(data.portador_sugerido)}</span></div>`,
+      data.descripcion && `<div class="detail-section"><div class="detail-label">Descripción</div><div class="card-desc">${escapeHtml(data.descripcion)}</div></div>`,
+    ].filter(Boolean);
+    html += rows.join('');
+  } else if (type === 'monstruos') {
+    const rows = [
+      data.cantidad && `<div class="detail-row"><span class="detail-label">Cantidad</span><span>×${data.cantidad}</span></div>`,
+      data.contexto_narrativo && `<div class="detail-section"><div class="detail-label">Contexto</div><div class="card-desc">${escapeHtml(data.contexto_narrativo)}</div></div>`,
+    ].filter(Boolean);
+    html += rows.join('');
+  }
+
+  html += '</div>';
+  body.innerHTML = html;
+  if (footer) footer.innerHTML = '<button class="btn" onclick="closeModal()">Cerrar</button>';
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 // ── RENDER PLAN VIEW ─────────────────────────────────────────
@@ -968,7 +1035,7 @@ function renderPlanView(plan) {
     if (isItemCommitted(bloqueKey, idx)) {
       return '<span class="plan-committed-badge">✓ Committed</span>';
     }
-    return `<button class="plan-commit-btn plan-commit-item-btn" onclick="commitItem('${pid}','${bloqueKey}',${idx})">✓ Commit</button>`;
+    return `<button class="plan-commit-btn plan-commit-item-btn" onclick="event.stopPropagation();commitItem('${pid}','${bloqueKey}',${idx})">✓ Commit</button>`;
   }
 
   // Verifica si todos los items nuevos de una sección están commiteados o en BD
@@ -1086,9 +1153,10 @@ function renderPlanView(plan) {
     const inDB = existsInDB(n.nombre, npcsKey);
     const itemComm = isItemCommitted(npcsKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
-    html += `<div class="npc-card${cardClass}">
+    const nData = encodeURIComponent(JSON.stringify(n));
+    html += `<div class="npc-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(n.nombre||'').replace(/'/g,"\\'")}','${npcsKey}',JSON.parse(decodeURIComponent('${nData}')))">
       <div class="npc-card-top">
-        <div class="npc-nombre"${inDB ? ` style="cursor:pointer;text-decoration:underline dotted" onclick="openEntityDetail('${(n.nombre||'').replace(/'/g,"\\'")}','${npcsKey}')" title="Ver detalle"` : ''}>${escapeHtml(n.nombre || '')}</div>
+        <div class="npc-nombre">${escapeHtml(n.nombre || '')}</div>
         ${itemAction(npcsKey, idx, n.nombre)}
       </div>
       ${n.rol ? `<div class="npc-rol-badge">${escapeHtml(n.rol)}</div>` : ''}
@@ -1108,9 +1176,10 @@ function renderPlanView(plan) {
     const inDB = existsInDB(l.nombre, locKey);
     const itemComm = isItemCommitted(locKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
-    html += `<div class="locacion-card${cardClass}">
+    const lData = encodeURIComponent(JSON.stringify(l));
+    html += `<div class="locacion-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(l.nombre||'').replace(/'/g,"\\'")}','${locKey}',JSON.parse(decodeURIComponent('${lData}')))">
       <div class="locacion-card-top">
-        <div class="locacion-nombre"${inDB ? ` style="cursor:pointer;text-decoration:underline dotted" onclick="openEntityDetail('${(l.nombre||'').replace(/'/g,"\\'")}','${locKey}')" title="Ver detalle"` : ''}>${escapeHtml(l.nombre || '')}</div>
+        <div class="locacion-nombre">${escapeHtml(l.nombre || '')}</div>
         ${itemAction(locKey, idx, l.nombre)}
       </div>
       <div class="locacion-tags">
@@ -1138,9 +1207,10 @@ function renderPlanView(plan) {
     const inDB = existsInDB(t.nombre, tesorosKey);
     const itemComm = isItemCommitted(tesorosKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
-    html += `<div class="tesoro-card${cardClass}">
+    const tData = encodeURIComponent(JSON.stringify(t));
+    html += `<div class="tesoro-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}',JSON.parse(decodeURIComponent('${tData}')))">
       <div class="tesoro-top">
-        <div class="tesoro-nombre"${inDB ? ` style="cursor:pointer;text-decoration:underline dotted" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}')" title="Ver detalle"` : ''}>${escapeHtml(t.nombre || '')}</div>
+        <div class="tesoro-nombre">${escapeHtml(t.nombre || '')}</div>
         ${rarezaBadge(t.rareza)}
         ${itemAction(tesorosKey, idx, t.nombre)}
       </div>
@@ -1155,7 +1225,8 @@ function renderPlanView(plan) {
     ${sectionHeader('Monstruos', 'bloque_monstruos', false)}
     <div class="monstruos-grid">`;
   (Array.isArray(monstruos) ? monstruos : []).forEach(m => {
-    html += `<div class="monstruo-card">
+    const mData = encodeURIComponent(JSON.stringify(m));
+    html += `<div class="monstruo-card" style="cursor:pointer" onclick="openEntityDetail('${(m.nombre||'').replace(/'/g,"\\'")}','monstruos',JSON.parse(decodeURIComponent('${mData}')))">
       <div class="monstruo-header">
         <span class="monstruo-nombre">${escapeHtml(m.nombre || '')}</span>
         ${m.cantidad ? `<span class="monstruo-cantidad">×${m.cantidad}</span>` : ''}
