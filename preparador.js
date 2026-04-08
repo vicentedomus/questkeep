@@ -22,38 +22,66 @@ function escapeAttr(s) {
   return String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
-// ── OPEN (modal flotante sobre toda la app) ───────────────────
+// ── OPEN (inline en util-workspace, como las demás utilidades) ──
 function openPreparador() {
-  document.getElementById('preparador-modal')?.remove();
-
-  const modal = document.createElement('div');
-  modal.id = 'preparador-modal';
-  modal.className = 'preparador-modal-overlay';
-  modal.innerHTML = `
+  // Ocultar cards de utilidades y header para usar todo el espacio
+  const section = document.getElementById('section-utilidades');
+  if (section) {
+    const header = section.querySelector('.section-header');
+    const grid = document.getElementById('grid-utilidades');
+    if (header) header.style.display = 'none';
+    if (grid) grid.style.display = 'none';
+  }
+  const ws = document.getElementById('util-workspace');
+  ws.style.display = '';
+  ws.innerHTML = `
     <div class="preparador-layout">
-      <div class="preparador-sidebar">
+      <div class="preparador-sidebar collapsed" id="preparador-sidebar">
         <div class="preparador-sidebar-header">
           <div style="display:flex;align-items:center;justify-content:space-between">
-            <h3 class="util-title" style="margin:0;font-size:15px">Planes de Sesion</h3>
-            <button class="btn btn-sm" onclick="closePreparador()">&#10005;</button>
+            <h3 class="util-title" style="margin:0;font-size:15px">Planes de Sesión</h3>
           </div>
           <input type="text" class="search-input" id="search-plans" placeholder="Buscar plan..." oninput="filterPlans()" style="width:100%">
           <button class="btn" style="width:100%" onclick="openNewPlanForm()">+ Nuevo Plan</button>
         </div>
         <div class="preparador-sidebar-list" id="plan-sidebar-list"></div>
       </div>
-      <div class="preparador-main" id="preparador-main">
-        <div class="prep-spinner"><span>Selecciona un plan o crea uno nuevo.</span></div>
+      <div class="preparador-main">
+        <div class="preparador-main-toolbar">
+          <button class="btn btn-sm prep-sidebar-toggle" onclick="togglePrepSidebar()">◀ Planes</button>
+          <button class="btn btn-sm" onclick="closePreparador()">✕ Cerrar</button>
+        </div>
+        <div class="preparador-main-content" id="preparador-main">
+          <div class="prep-spinner"><span>Selecciona un plan o crea uno nuevo.</span></div>
+        </div>
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
   loadSessionPlans();
   loadCaches();
+  ws.scrollIntoView({ behavior: 'smooth' });
 }
 
 function closePreparador() {
-  document.getElementById('preparador-modal')?.remove();
+  // Restaurar cards de utilidades y header
+  const section = document.getElementById('section-utilidades');
+  if (section) {
+    const header = section.querySelector('.section-header');
+    const grid = document.getElementById('grid-utilidades');
+    if (header) header.style.display = '';
+    if (grid) grid.style.display = '';
+  }
+  const ws = document.getElementById('util-workspace');
+  ws.style.display = 'none';
+  ws.innerHTML = '';
+}
+
+function togglePrepSidebar() {
+  const sidebar = document.getElementById('preparador-sidebar');
+  if (!sidebar) return;
+  sidebar.classList.toggle('collapsed');
+  const btn = document.querySelector('.prep-sidebar-toggle');
+  if (btn) btn.textContent = sidebar.classList.contains('collapsed') ? '◀ Planes' : '▶ Ocultar';
 }
 
 // ── LOAD CACHES ──────────────────────────────────────────────
@@ -985,6 +1013,8 @@ function showPlanEntityDetail(data, type) {
 }
 
 // ── RENDER PLAN VIEW ─────────────────────────────────────────
+let _prepActiveTab = 'narrativa';
+
 function renderPlanView(plan) {
   const main = document.getElementById('preparador-main');
   if (!main) return;
@@ -1002,15 +1032,13 @@ function renderPlanView(plan) {
     return `<button class="plan-regen-btn" onclick="regenerateBloque('${pid}','${key}')">↺ Regenerar</button>`;
   }
 
-  // Verifica si un índice específico ya fue commiteado
   function isItemCommitted(key, idx) {
     const val = committed[key];
-    if (val === true) return true;                   // formato viejo: toda la sección
-    if (Array.isArray(val)) return val.includes(idx); // formato nuevo: por índice
+    if (val === true) return true;
+    if (Array.isArray(val)) return val.includes(idx);
     return false;
   }
 
-  // Verifica si un nombre ya existe en las BDs cargadas
   function existsInDB(nombre, bloqueKey) {
     const n = (nombre || '').trim().toLowerCase();
     if (!n) return false;
@@ -1027,7 +1055,6 @@ function renderPlanView(plan) {
     return false;
   }
 
-  // Badge/botón por tarjeta individual
   function itemAction(bloqueKey, idx, nombre) {
     if (existsInDB(nombre, bloqueKey)) {
       return `<span class="plan-indb-badge" style="cursor:pointer" onclick="event.stopPropagation();openEntityDetail('${(nombre||'').replace(/'/g,"\\'")}','${bloqueKey}')" title="Ver detalle">✓ En BD</span>`;
@@ -1038,7 +1065,6 @@ function renderPlanView(plan) {
     return `<button class="plan-commit-btn plan-commit-item-btn" onclick="event.stopPropagation();commitItem('${pid}','${bloqueKey}',${idx})">✓ Commit</button>`;
   }
 
-  // Verifica si todos los items nuevos de una sección están commiteados o en BD
   function allSectionDone(bloqueKey, items) {
     if (committed[bloqueKey] === true) return true;
     if (!Array.isArray(items) || items.length === 0) return false;
@@ -1049,9 +1075,13 @@ function renderPlanView(plan) {
 
   function sectionHeader(title, key, canCommit, items) {
     const allDone = canCommit && allSectionDone(key, items);
-    return `<div class="plan-section-header">
-      <h2 class="plan-section-title">${title}</h2>
-      <div class="plan-section-actions">
+    const collapseId = `prep-collapse-${key}`;
+    return `<div class="plan-section-header" onclick="togglePrepSection('${collapseId}')" style="cursor:pointer">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="prep-collapse-icon" id="icon-${collapseId}">−</span>
+        <h2 class="plan-section-title">${title}</h2>
+      </div>
+      <div class="plan-section-actions" onclick="event.stopPropagation()">
         ${allDone ? '<span class="plan-committed-badge">✓ Committed</span>' : ''}
         ${regenBtn(key)}
       </div>
@@ -1074,7 +1104,6 @@ function renderPlanView(plan) {
       '</span>';
   }
 
-  // ── rareza badge ───────────────────────────────────────────
   const rarezaBg = { común: '#2a2a2a', 'poco común': '#1a3a1a', rara: '#1a1a4a', 'muy rara': '#3a1a4a', legendaria: '#4a3500' };
   const rarezaColor = { común: '#9c8f78', 'poco común': '#6fcf97', rara: '#7eb8ff', 'muy rara': '#c77dff', legendaria: '#ffbf00' };
   function rarezaBadge(r) {
@@ -1084,34 +1113,28 @@ function renderPlanView(plan) {
     return `<span class="rareza-badge" style="background:${bg};color:${color}">${escapeHtml(r || '—')}</span>`;
   }
 
-  // ── 1. HEADER ──────────────────────────────────────────────
-  let html = `<div class="plan-view">
-    <div class="plan-header">
-      <div>
-        <div class="plan-title">${escapeHtml(plan.nombre || 'Plan')}</div>
-        <div class="plan-fecha">${fecha}</div>
-      </div>
-      <button class="plan-delete-btn" onclick="deletePlan('${pid}')">Eliminar</button>
-    </div>
-    <div class="plan-separator"><span class="plan-separator-diamond">◆</span></div>
-  `;
+  // ── BUILD TAB CONTENT ──────────────────────────────────────
 
-  // ── 2. GANCHO FUERTE ───────────────────────────────────────
+  // — Tab Narrativa —
   const gancho = bloques['bloque_strong_start'] || bloques['gancho_fuerte'];
-  html += `<div class="plan-section">
-    ${sectionHeader('Gancho Fuerte', 'bloque_strong_start', false)}
-    <div class="gancho-card">
-      <div class="gancho-text">${escapeHtml(gancho || 'Sin contenido generado.')}</div>
-    </div>
-  </div>`;
-
-  // ── 3. ESCENAS ─────────────────────────────────────────────
   const escenas = bloques['bloque_escenas'] || bloques['escenas'] || [];
-  html += `<div class="plan-section">
-    ${sectionHeader('Escenas Potenciales', 'bloque_escenas', false)}
-    <div class="escenas-grid">`;
+  const secretos = bloques['bloque_secretos'] || bloques['secretos'] || [];
+
+  let tabNarrativa = `
+    <div class="plan-section">
+      ${sectionHeader('Gancho Fuerte', 'bloque_strong_start', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_strong_start">
+        <div class="gancho-card">
+          <div class="gancho-text">${escapeHtml(gancho || 'Sin contenido generado.')}</div>
+        </div>
+      </div>
+    </div>
+    <div class="plan-section">
+      ${sectionHeader('Escenas Potenciales', 'bloque_escenas', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_escenas">
+        <div class="escenas-grid">`;
   (Array.isArray(escenas) ? escenas : []).forEach(e => {
-    html += `<div class="escena-card">
+    tabNarrativa += `<div class="escena-card">
       <div class="escena-card-top">
         ${escenaBadge(e.tipo)}
         ${tensionDots(e.tension)}
@@ -1120,15 +1143,13 @@ function renderPlanView(plan) {
       <div class="escena-desc">${escapeHtml(e.descripcion || '')}</div>
     </div>`;
   });
-  html += `</div></div>`;
-
-  // ── 4. SECRETOS ────────────────────────────────────────────
-  const secretos = bloques['bloque_secretos'] || bloques['secretos'] || [];
-  html += `<div class="plan-section plan-section-dark">
-    ${sectionHeader('Secretos y Pistas', 'bloque_secretos', false)}
-    <div class="secretos-list">`;
+  tabNarrativa += `</div></div></div>
+    <div class="plan-section plan-section-dark">
+      ${sectionHeader('Secretos y Pistas', 'bloque_secretos', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_secretos">
+        <div class="secretos-list">`;
   (Array.isArray(secretos) ? secretos : []).forEach(s => {
-    html += `<div class="secreto-row">
+    tabNarrativa += `<div class="secreto-row">
       <div class="secreto-left">
         <span class="secreto-icon">◉</span>
         <div class="secreto-text">${escapeHtml(s.secreto || '')}</div>
@@ -1139,22 +1160,23 @@ function renderPlanView(plan) {
       </div>
     </div>`;
   });
-  html += `</div></div>`;
+  tabNarrativa += `</div></div></div>`;
 
-  // ── 5 & 6. NPCS + LOCACIONES (lado a lado en PC) ──────────
-  html += `<div class="plan-row-2col">`;
-
+  // — Tab NPCs —
   const npcs = bloques['bloque_npcs'] || bloques['npcs'] || [];
   const npcsKey = bloques['bloque_npcs'] ? 'bloque_npcs' : 'npcs';
-  html += `<div class="plan-section">
-    ${sectionHeader('NPCs Importantes', npcsKey, true, npcs)}
-    <div class="npcs-grid">`;
+  let tabNpcs = `
+    <div class="plan-section">
+      ${sectionHeader('NPCs Importantes', npcsKey, true, npcs)}
+      <div class="prep-collapse-body" id="prep-collapse-${npcsKey}">
+        <input type="text" class="search-input prep-npc-search" placeholder="Buscar NPC..." oninput="filterPrepNpcs(this)" style="margin-bottom:12px">
+        <div class="npcs-grid" id="prep-npcs-grid">`;
   (Array.isArray(npcs) ? npcs : []).forEach((n, idx) => {
     const inDB = existsInDB(n.nombre, npcsKey);
     const itemComm = isItemCommitted(npcsKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
     const nData = encodeURIComponent(JSON.stringify(n));
-    html += `<div class="npc-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(n.nombre||'').replace(/'/g,"\\'")}','${npcsKey}',JSON.parse(decodeURIComponent('${nData}')))">
+    tabNpcs += `<div class="npc-card${cardClass}" data-npc-name="${escapeHtml((n.nombre||'').toLowerCase())}" style="cursor:pointer" onclick="openEntityDetail('${(n.nombre||'').replace(/'/g,"\\'")}','${npcsKey}',JSON.parse(decodeURIComponent('${nData}')))">
       <div class="npc-card-top">
         <div class="npc-nombre">${escapeHtml(n.nombre || '')}</div>
         ${itemAction(npcsKey, idx, n.nombre)}
@@ -1165,19 +1187,25 @@ function renderPlanView(plan) {
       ${n.frase ? `<div class="npc-frase">"${escapeHtml(n.frase)}"</div>` : ''}
     </div>`;
   });
-  html += `</div></div>`;
+  tabNpcs += `</div></div></div>`;
 
+  // — Tab Mundo —
   const locaciones = bloques['bloque_locaciones'] || bloques['locaciones'] || [];
   const locKey = bloques['bloque_locaciones'] ? 'bloque_locaciones' : 'locaciones';
-  html += `<div class="plan-section plan-section-dark">
-    ${sectionHeader('Locaciones', locKey, true, locaciones)}
-    <div class="locaciones-grid">`;
+  const tesoros = bloques['bloque_tesoros'] || bloques['tesoros'] || [];
+  const tesorosKey = bloques['bloque_tesoros'] ? 'bloque_tesoros' : 'tesoros';
+
+  let tabMundo = `
+    <div class="plan-section">
+      ${sectionHeader('Locaciones', locKey, true, locaciones)}
+      <div class="prep-collapse-body" id="prep-collapse-${locKey}">
+        <div class="locaciones-grid">`;
   (Array.isArray(locaciones) ? locaciones : []).forEach((l, idx) => {
     const inDB = existsInDB(l.nombre, locKey);
     const itemComm = isItemCommitted(locKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
     const lData = encodeURIComponent(JSON.stringify(l));
-    html += `<div class="locacion-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(l.nombre||'').replace(/'/g,"\\'")}','${locKey}',JSON.parse(decodeURIComponent('${lData}')))">
+    tabMundo += `<div class="locacion-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(l.nombre||'').replace(/'/g,"\\'")}','${locKey}',JSON.parse(decodeURIComponent('${lData}')))">
       <div class="locacion-card-top">
         <div class="locacion-nombre">${escapeHtml(l.nombre || '')}</div>
         ${itemAction(locKey, idx, l.nombre)}
@@ -1191,24 +1219,19 @@ function renderPlanView(plan) {
       ${!l.descripcion_exterior && !l.descripcion_interior && l.descripcion ? `<div class="locacion-desc">${escapeHtml(l.descripcion)}</div>` : ''}
     </div>`;
   });
-  html += `</div></div>`;
+  tabMundo += `</div></div></div>`;
 
-  html += `</div>`; // .plan-row-2col NPCs+Locaciones
-
-  // ── 7 & 8. TESOROS + MONSTRUOS (lado a lado en PC) ────────
-  html += `<div class="plan-row-2col">`;
-
-  const tesoros = bloques['bloque_tesoros'] || bloques['tesoros'] || [];
-  const tesorosKey = bloques['bloque_tesoros'] ? 'bloque_tesoros' : 'tesoros';
-  html += `<div class="plan-section">
-    ${sectionHeader('Tesoros', tesorosKey, true, tesoros)}
-    <div class="tesoros-grid">`;
+  tabMundo += `
+    <div class="plan-section">
+      ${sectionHeader('Tesoros', tesorosKey, true, tesoros)}
+      <div class="prep-collapse-body" id="prep-collapse-${tesorosKey}">
+        <div class="tesoros-grid">`;
   (Array.isArray(tesoros) ? tesoros : []).forEach((t, idx) => {
     const inDB = existsInDB(t.nombre, tesorosKey);
     const itemComm = isItemCommitted(tesorosKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
     const tData = encodeURIComponent(JSON.stringify(t));
-    html += `<div class="tesoro-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}',JSON.parse(decodeURIComponent('${tData}')))">
+    tabMundo += `<div class="tesoro-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}',JSON.parse(decodeURIComponent('${tData}')))">
       <div class="tesoro-top">
         <div class="tesoro-nombre">${escapeHtml(t.nombre || '')}</div>
         ${rarezaBadge(t.rareza)}
@@ -1218,15 +1241,18 @@ function renderPlanView(plan) {
       ${t.portador_sugerido ? `<div class="tesoro-para">Para: ${escapeHtml(t.portador_sugerido)}</div>` : ''}
     </div>`;
   });
-  html += `</div></div>`;
+  tabMundo += `</div></div></div>`;
 
+  // — Tab Combate —
   const monstruos = bloques['bloque_monstruos'] || bloques['monstruos'] || [];
-  html += `<div class="plan-section plan-section-dark">
-    ${sectionHeader('Monstruos', 'bloque_monstruos', false)}
-    <div class="monstruos-grid">`;
+  let tabCombate = `
+    <div class="plan-section">
+      ${sectionHeader('Monstruos / Encuentros', 'bloque_monstruos', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_monstruos">
+        <div class="monstruos-grid">`;
   (Array.isArray(monstruos) ? monstruos : []).forEach(m => {
     const mData = encodeURIComponent(JSON.stringify(m));
-    html += `<div class="monstruo-card" style="cursor:pointer" onclick="openEntityDetail('${(m.nombre||'').replace(/'/g,"\\'")}','monstruos',JSON.parse(decodeURIComponent('${mData}')))">
+    tabCombate += `<div class="monstruo-card" style="cursor:pointer" onclick="openEntityDetail('${(m.nombre||'').replace(/'/g,"\\'")}','monstruos',JSON.parse(decodeURIComponent('${mData}')))">
       <div class="monstruo-header">
         <span class="monstruo-nombre">${escapeHtml(m.nombre || '')}</span>
         ${m.cantidad ? `<span class="monstruo-cantidad">×${m.cantidad}</span>` : ''}
@@ -1234,35 +1260,90 @@ function renderPlanView(plan) {
       ${m.contexto_narrativo ? `<div class="monstruo-ctx">${escapeHtml(m.contexto_narrativo)}</div>` : ''}
     </div>`;
   });
-  html += `</div></div>`;
+  tabCombate += `</div></div></div>`;
 
-  html += `</div>`; // .plan-row-2col Tesoros+Monstruos
-
-  // ── 9. MOMENTO PIVOTE ──────────────────────────────────────
-  const pivote = bloques['bloque_pivote'] || bloques['pivote'];
-  if (pivote) {
-    html += `<div class="plan-section">
-      ${sectionHeader('Momento Pivote', 'bloque_pivote', false)}
-      <div class="pivote-card">
-        <span class="pivote-icon">⚔</span>
-        <div class="pivote-text">${escapeHtml(pivote)}</div>
-      </div>
-    </div>`;
-  }
-
-  // ── 10. NOTAS PRIVADAS DM ─────────────────────────────────
+  // — Tab Notas DM —
   const notasDm = bloques['bloque_notas_dm'] || bloques['notas_dm'];
+  const pivote = bloques['bloque_pivote'] || bloques['pivote'];
+
+  let tabNotasDm = '';
   if (Array.isArray(notasDm) && notasDm.length) {
-    html += `<div class="plan-section plan-section-dark">
-      ${sectionHeader('Notas Privadas DM', 'bloque_notas_dm', false)}
-      <div class="notas-dm-list">
-        ${notasDm.map(n => `<div class="nota-dm-item"><span class="nota-dm-dot">▸</span>${escapeHtml(n)}</div>`).join('')}
+    tabNotasDm += `<div class="plan-section">
+      ${sectionHeader('Notas Privadas', 'bloque_notas_dm', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_notas_dm">
+        <div class="notas-dm-list">
+          ${notasDm.map(n => `<div class="nota-dm-item"><span class="nota-dm-dot">▸</span>${escapeHtml(n)}</div>`).join('')}
+        </div>
       </div>
     </div>`;
   }
+  if (pivote) {
+    tabNotasDm += `<div class="plan-section">
+      ${sectionHeader('Momento Pivote', 'bloque_pivote', false)}
+      <div class="prep-collapse-body" id="prep-collapse-bloque_pivote">
+        <div class="pivote-card">
+          <span class="pivote-icon">⚔</span>
+          <div class="pivote-text">${escapeHtml(pivote)}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (!tabNotasDm) {
+    tabNotasDm = '<div class="prep-spinner"><span>Sin notas ni momento pivote generados.</span></div>';
+  }
 
-  html += '</div>'; // .plan-view
+  // ── TABS DATA ──────────────────────────────────────────────
+  const tabs = [
+    { id: 'narrativa', label: 'Narrativa', content: tabNarrativa },
+    { id: 'npcs',      label: 'NPCs',      content: tabNpcs },
+    { id: 'mundo',     label: 'Mundo',      content: tabMundo },
+    { id: 'combate',   label: 'Combate',    content: tabCombate },
+    { id: 'notas_dm',  label: 'Notas DM',   content: tabNotasDm },
+  ];
+
+  // ── ASSEMBLE HTML ──────────────────────────────────────────
+  let html = `<div class="plan-view">
+    <div class="plan-header">
+      <div>
+        <div class="plan-title">${escapeHtml(plan.nombre || 'Plan')}</div>
+        <div class="plan-fecha">${fecha}</div>
+      </div>
+      <button class="plan-delete-btn" onclick="deletePlan('${pid}')">Eliminar</button>
+    </div>
+    <div class="plan-separator"><span class="plan-separator-diamond">◆</span></div>
+    <div class="prep-tabs">
+      ${tabs.map(t => `<button class="prep-tab${t.id === _prepActiveTab ? ' active' : ''}" data-prep-tab="${t.id}" onclick="switchPrepTab('${t.id}')">${t.label}</button>`).join('')}
+    </div>
+    ${tabs.map(t => `<div class="prep-tab-panel${t.id === _prepActiveTab ? ' active' : ''}" id="prep-panel-${t.id}">${t.content}</div>`).join('')}
+  </div>`;
+
   main.innerHTML = html;
+}
+
+// ── TAB SWITCHING ────────────────────────────────────────────
+function switchPrepTab(tabId) {
+  _prepActiveTab = tabId;
+  document.querySelectorAll('.prep-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-prep-tab') === tabId));
+  document.querySelectorAll('.prep-tab-panel').forEach(p => p.classList.toggle('active', p.id === `prep-panel-${tabId}`));
+}
+
+// ── SECTION COLLAPSE ─────────────────────────────────────────
+function togglePrepSection(collapseId) {
+  const body = document.getElementById(collapseId);
+  const icon = document.getElementById('icon-' + collapseId);
+  if (!body) return;
+  const isOpen = !body.classList.contains('collapsed');
+  body.classList.toggle('collapsed', isOpen);
+  if (icon) icon.textContent = isOpen ? '+' : '−';
+}
+
+// ── NPC SEARCH WITHIN TAB ────────────────────────────────────
+function filterPrepNpcs(input) {
+  const q = (input.value || '').toLowerCase();
+  document.querySelectorAll('#prep-npcs-grid .npc-card').forEach(card => {
+    const name = card.getAttribute('data-npc-name') || '';
+    card.style.display = name.includes(q) ? '' : 'none';
+  });
 }
 
 // ── REGENERATE BLOQUE ────────────────────────────────────────
