@@ -1,6 +1,6 @@
 /**
  * tiendas.js
- * Módulo standalone de Generación de Tiendas — Campaña Halo
+ * Módulo standalone de Generación de Tiendas — QuestKeep
  *
  * Replica el comportamiento del macro de Foundry VTT sin dependencias externas.
  *
