@@ -1263,13 +1263,14 @@ const CAMPANA_COL_DEFS = [
       if (isSelected) cls.push('campana-selected');
       return `<div class="${cls.join(' ')}" data-section="npcs" data-entity-id="${n.id}" onclick="campanaClickMini(this, event)">
         <div class="campana-mini-top"><div class="campana-mini-name">${escapeHtml(n.nombre)}</div><button class="campana-detail-btn" onclick="campanaOpenDetail(this, event)" title="Ver detalle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>
-        <div class="campana-mini-meta">${rolBadge(n.rol)} ${n.ciudad ? `<span class="campana-mini-dim">${escapeHtml(n.ciudad.nombre)}</span>` : ''}</div>
+        <div class="campana-mini-meta">${n.tipo_npc ? `<span class="badge tipo-badge" style="font-size:0.6rem">${escapeHtml(n.tipo_npc)}</span>` : ''} ${n.ciudad ? `<span class="campana-mini-dim">${escapeHtml(n.ciudad.nombre)}</span>` : ''}</div>
       </div>`;
     },
     searchFields: ['nombre','raza','tipo_npc','primera_impresion','rol'],
     searchRelFields: ['ciudad','establecimiento'],
     searchRelMultiFields: ['quests','items_magicos','lugares'],
     filters: [
+      { id: 'tipo_npc', label: 'Tipo', values: () => [...new Set((DATA.npcs||[]).map(n=>n.tipo_npc).filter(Boolean))].sort(), match: (item,v) => item.tipo_npc === v },
       { id: 'rol', label: 'Rol', values: () => [...new Set((DATA.npcs||[]).map(n=>n.rol).filter(Boolean))].sort(), match: (item,v) => item.rol === v },
       { id: 'ciudad', label: 'Ciudad', values: () => [...new Set((DATA.npcs||[]).map(n=>n.ciudad?.nombre).filter(Boolean))].sort(), match: (item,v) => item.ciudad?.nombre === v },
     ]
