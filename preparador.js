@@ -1088,20 +1088,20 @@ function renderPlanView(plan) {
     </div>`;
   }
 
-  // ── tipo badge colors ──────────────────────────────────────
-  const tipoBg = { combate: '#5c1a1a', social: '#1a3060', 'exploración': '#1a4a28', misterio: '#3a1a5c' };
-  const tipoColor = { combate: '#ffaaaa', social: '#aabfff', 'exploración': '#aaffcc', misterio: '#d4aaff' };
-  function escenaBadge(tipo) {
+  // ── tipo meta (colores + icono) ────────────────────────────
+  const TIPO_META = {
+    combate:       { accent: '#ff6b6b', icon: '⚔' },
+    social:        { accent: '#6b8fff', icon: '☙' },
+    'exploración': { accent: '#6bffa5', icon: '✦' },
+    misterio:      { accent: '#b06bff', icon: '☽' }
+  };
+  function tipoMeta(tipo) {
     const t = (tipo || '').toLowerCase();
-    const bg = tipoBg[t] || '#2a2a2a';
-    const color = tipoColor[t] || '#d4c5ab';
-    return `<span class="escena-tipo-badge" style="background:${bg};color:${color}">${escapeHtml(tipo || '')}</span>`;
+    return TIPO_META[t] || { accent: '#9c8f78', icon: '◆' };
   }
-  function tensionDots(n) {
-    const filled = Math.min(Math.max(parseInt(n) || 0, 0), 5);
-    return '<span class="tension-dots">' +
-      '●'.repeat(filled) + '<span style="opacity:0.25">' + '●'.repeat(5 - filled) + '</span>' +
-      '</span>';
+  function tensionMeter(n) {
+    const level = Math.min(Math.max(parseInt(n) || 0, 0), 5);
+    return `<div class="tension-meter" data-level="${level}" title="Tensión ${level}/5"><span></span><span></span><span></span><span></span><span></span></div>`;
   }
 
   const rarezaBg = { común: '#2a2a2a', 'poco común': '#1a3a1a', rara: '#1a1a4a', 'muy rara': '#3a1a4a', legendaria: '#4a3500' };
@@ -1120,45 +1120,57 @@ function renderPlanView(plan) {
   const escenas = bloques['bloque_escenas'] || bloques['escenas'] || [];
   const secretos = bloques['bloque_secretos'] || bloques['secretos'] || [];
 
+  const fleuron = '<div class="section-fleuron" aria-hidden="true"><span></span><em>❦</em><span></span></div>';
+
   let tabNarrativa = `
     <div class="plan-section">
       ${sectionHeader('Gancho Fuerte', 'bloque_strong_start', false)}
       <div class="prep-collapse-body" id="prep-collapse-bloque_strong_start">
         <div class="gancho-card">
-          <div class="gancho-text">${escapeHtml(gancho || 'Sin contenido generado.')}</div>
+          <div class="gancho-label">Escena cero · Apertura</div>
+          <p class="gancho-text">${escapeHtml(gancho || 'Sin contenido generado.')}</p>
+          <div class="gancho-flourish" aria-hidden="true">❦</div>
         </div>
       </div>
     </div>
+    ${fleuron}
     <div class="plan-section">
       ${sectionHeader('Escenas Potenciales', 'bloque_escenas', false)}
       <div class="prep-collapse-body" id="prep-collapse-bloque_escenas">
         <div class="escenas-grid">`;
   (Array.isArray(escenas) ? escenas : []).forEach(e => {
-    tabNarrativa += `<div class="escena-card">
-      <div class="escena-card-top">
-        ${escenaBadge(e.tipo)}
-        ${tensionDots(e.tension)}
+    const meta = tipoMeta(e.tipo);
+    tabNarrativa += `<article class="escena-card" style="--tipo-accent:${meta.accent}" onclick="this.classList.toggle('expanded')">
+      <div class="escena-strip"></div>
+      <div class="escena-body">
+        <div class="escena-head">
+          <span class="escena-tipo"><span class="escena-tipo-ico">${meta.icon}</span>${escapeHtml(e.tipo || '—')}</span>
+          ${tensionMeter(e.tension)}
+        </div>
+        <h3 class="escena-titulo">${escapeHtml(e.titulo || '')}</h3>
+        <p class="escena-desc">${escapeHtml(e.descripcion || '')}</p>
+        <span class="escena-expand" aria-hidden="true">▾</span>
       </div>
-      <div class="escena-titulo">${escapeHtml(e.titulo || '')}</div>
-      <div class="escena-desc">${escapeHtml(e.descripcion || '')}</div>
-    </div>`;
+    </article>`;
   });
   tabNarrativa += `</div></div></div>
+    ${fleuron}
     <div class="plan-section plan-section-dark">
       ${sectionHeader('Secretos y Pistas', 'bloque_secretos', false)}
       <div class="prep-collapse-body" id="prep-collapse-bloque_secretos">
         <div class="secretos-list">`;
   (Array.isArray(secretos) ? secretos : []).forEach(s => {
-    tabNarrativa += `<div class="secreto-row">
-      <div class="secreto-left">
-        <span class="secreto-icon">◉</span>
-        <div class="secreto-text">${escapeHtml(s.secreto || '')}</div>
+    const hasMeta = s.pista || s.quien_sabe;
+    tabNarrativa += `<article class="secreto-card">
+      <div class="secreto-head">
+        <span class="secreto-seal">◉</span>
+        <p class="secreto-text">${escapeHtml(s.secreto || '')}</p>
       </div>
-      <div class="secreto-right">
-        ${s.pista ? `<div class="secreto-pista"><span class="secreto-label">Pista</span>${escapeHtml(s.pista)}</div>` : ''}
-        ${s.quien_sabe ? `<div class="secreto-quien"><span class="secreto-label">Sabe</span>${escapeHtml(s.quien_sabe)}</div>` : ''}
-      </div>
-    </div>`;
+      ${hasMeta ? `<div class="secreto-meta">
+        ${s.pista ? `<div class="secreto-field"><span class="secreto-label">Pista</span><span class="secreto-value">${escapeHtml(s.pista)}</span></div>` : ''}
+        ${s.quien_sabe ? `<div class="secreto-field"><span class="secreto-label">Sabe</span><span class="secreto-value">${escapeHtml(s.quien_sabe)}</span></div>` : ''}
+      </div>` : ''}
+    </article>`;
   });
   tabNarrativa += `</div></div></div>`;
 
