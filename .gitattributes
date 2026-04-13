@@ -1,0 +1,15 @@
+# Normalizar line endings a LF en todos los OS (Windows/Mac via Google Drive)
+* text=auto eol=lf
+
+# Binarios explícitos (por si acaso)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
