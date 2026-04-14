@@ -36,7 +36,7 @@ function openPreparador() {
   ws.style.display = '';
   ws.innerHTML = `
     <div class="preparador-layout">
-      <div class="preparador-sidebar collapsed" id="preparador-sidebar">
+      <div class="preparador-sidebar" id="preparador-sidebar">
         <div class="preparador-sidebar-header">
           <div style="display:flex;align-items:center;justify-content:space-between">
             <h3 class="util-title" style="margin:0;font-size:15px">Planes de Sesión</h3>
@@ -48,7 +48,7 @@ function openPreparador() {
       </div>
       <div class="preparador-main">
         <div class="preparador-main-toolbar">
-          <button class="btn btn-sm prep-sidebar-toggle" onclick="togglePrepSidebar()">◀ Planes</button>
+          <button class="btn btn-sm prep-sidebar-toggle" onclick="togglePrepSidebar()">▶ Ocultar</button>
           <button class="btn btn-sm" onclick="closePreparador()">✕ Cerrar</button>
         </div>
         <div class="preparador-main-content" id="preparador-main">
@@ -1233,7 +1233,8 @@ function renderPlanView(plan) {
   });
   tabMundo += `</div></div></div>`;
 
-  tabMundo += `
+  // — Tab Tesoros —
+  let tabTesoros = `
     <div class="plan-section">
       ${sectionHeader('Tesoros', tesorosKey, true, tesoros)}
       <div class="prep-collapse-body" id="prep-collapse-${tesorosKey}">
@@ -1243,7 +1244,7 @@ function renderPlanView(plan) {
     const itemComm = isItemCommitted(tesorosKey, idx);
     const cardClass = inDB || itemComm ? ' committed' : '';
     const tData = encodeURIComponent(JSON.stringify(t));
-    tabMundo += `<div class="tesoro-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}',JSON.parse(decodeURIComponent('${tData}')))">
+    tabTesoros += `<div class="tesoro-card${cardClass}" style="cursor:pointer" onclick="openEntityDetail('${(t.nombre||'').replace(/'/g,"\\'")}','${tesorosKey}',JSON.parse(decodeURIComponent('${tData}')))">
       <div class="tesoro-top">
         <div class="tesoro-nombre">${escapeHtml(t.nombre || '')}</div>
         ${rarezaBadge(t.rareza)}
@@ -1253,7 +1254,7 @@ function renderPlanView(plan) {
       ${t.portador_sugerido ? `<div class="tesoro-para">Para: ${escapeHtml(t.portador_sugerido)}</div>` : ''}
     </div>`;
   });
-  tabMundo += `</div></div></div>`;
+  tabTesoros += `</div></div></div>`;
 
   // — Tab Combate —
   const monstruos = bloques['bloque_monstruos'] || bloques['monstruos'] || [];
@@ -1308,9 +1309,10 @@ function renderPlanView(plan) {
   const tabs = [
     { id: 'narrativa', label: 'Narrativa', content: tabNarrativa },
     { id: 'npcs',      label: 'NPCs',      content: tabNpcs },
-    { id: 'mundo',     label: 'Mundo',      content: tabMundo },
-    { id: 'combate',   label: 'Combate',    content: tabCombate },
-    { id: 'notas_dm',  label: 'Notas DM',   content: tabNotasDm },
+    { id: 'mundo',     label: 'Mundo',     content: tabMundo },
+    { id: 'tesoros',   label: 'Tesoros',   content: tabTesoros },
+    { id: 'combate',   label: 'Combate',   content: tabCombate },
+    { id: 'notas_dm',  label: 'Notas DM',  content: tabNotasDm },
   ];
 
   // ── ASSEMBLE HTML ──────────────────────────────────────────
